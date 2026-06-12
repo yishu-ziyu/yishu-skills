@@ -15,6 +15,26 @@ End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoi
 
 **Core principle**: 留口误比瞎猜准 — preserve speaker fragments rather than paraphrase. Only fix ASR errors with 100% contextual confidence.
 
+## Quick Decision（LLM 第一步必须问）
+
+**收到"转录这个音频"时不要直接跑命令，先问用户 2 个问题决定 backend**：
+
+| 决策 | 单选 | 推荐 backend |
+|------|------|--------------|
+| **1. 说话人数量？** | 单人（独白 / 单主播 / 视频音轨解说）<br>多人（对话 / 访谈 / 圆桌 / 多人播客） | 单人 → **Stepfun cloud**（快 2-3x，便宜 0.15 元/h）<br>多人 → **FunASR local**（带 `cam++` 说话人分离） |
+| **2. 时长？** | < 10min<br>≥ 10min | 不切分<br>ffmpeg 自动切 10min chunks |
+
+**为什么不直接 default**：FunASR 多人说话人分离是**唯一**关键差异。Stepfun 没有 cam++ 模型，多人音频会全部标 `Speaker 0`（实测，2026-06-12）。单人音频用 FunASR 是杀鸡用牛刀，浪费 GPU 时间。
+
+**默认推荐**（用户不想回答时）：**本地 FunASR**——质量上限更高，单人也能用，但速度比 Stepfun 慢 2-3x。
+
+**询问模板**（复制即用）：
+> 转录前先问 2 个：
+> 1. 录音是**单人**还是**多人**？决定用本地（多人必备）还是云端（单人快 2-3x）。
+> 2. **多长**？< 10min 不切分，≥ 10min 自动切。
+>
+> 不想答的话默认走本地 FunASR。
+
 ## When to Use
 
 - 任何长度的音频文件（播客 / 抖音 B站视频音轨 / 会议录音）
@@ -117,8 +137,85 @@ Sub-agent 1 Write = 1 个 chunk，避免长操作。
 | `scripts/merge.py` | 合并 SRT + TXT（按时间戳） | 主线程，转写后 |
 | `scripts/verify.sh` | grep 已知坏模式 + 时间戳残留 | 主线程，cleanup 后 |
 | `scripts/pipeline.sh` | 一键跑完 speed-first 全流程 | 快速验证 |
+| `scripts/cleanup.sh` | 删 ASR 中间产物（chunks/*.wav），保留 merged/ | 最终 `.md` 写完后 |
 
 **重要**：用户机器上 **MPS 加速的 FunASR** 是最常见路径，setup.sh 装好就能用。**不要**用 sherpa-onnx int8 替代——那是 v1 的"次等"方案。
+
+## Output Format
+
+Cleanup 后的 `.md` 文件**统一格式**——YAML frontmatter + 简化段落结构：
+
+```markdown
+---
+date: 2026-06-12
+source: 20260609_012544_part1.m4a
+duration: 66min
+backend: FunASR SenseVoice-Small + cam++
+speakers: 4 (Speaker 0/1/2/3)
+notes: 4 人对谈；`[存疑：xxx]` 表示 ASR 无法 100% 确证
+---
+
+# 20260609_012544_part1
+
+## 开场：[主题]
+
+**Speaker 1:** [内容...]
+
+## Q1：[问题]？
+
+**Speaker 2:** [内容...]
+—— [追问]？
+**Speaker 2:** [回应]
+
+**Speaker 0:** [内容...]
+```
+
+**结构原则**：
+- **元信息 → frontmatter**（不在正文 blockquote）
+- **每节前后不写 `---`**（H2 标题已能视觉分组）
+- **Speaker 用 `**Speaker N:**` 加粗前缀**，每段开头一次；不写 `### Speaker X：副标题`（和 `**Speaker N:**` 重复）
+- **H1 = 文件名**，去掉"完整转录稿"后缀
+- **`[存疑：xxx]` inline 标注**（不单列块、不写"概述"段）
+- **关键术语加粗**（不写"首先/其次/最后"八股）
+
+**Hygiene 自检**（cleanup pass 完成后必跑）：
+- 时间戳残留 `[HH:MM:SS]` = 0
+- Speaker 标签数 ≥ N（对话参与人数）
+- Q 主题节数 ≥ 5
+- `---` 只在 frontmatter 闭合之后**不**出现
+- 不出现 `### Speaker X：副标题` 模式
+
+## Cleanup Intermediate Files
+
+**问题**：ASR pipeline 会产生 ~100-200MB 中间产物（chunks/*.wav 占大头，每 10min chunk 18MB），不清理会堆积。
+
+**脚本**：`scripts/cleanup.sh`（独立可执行）
+
+**默认行为**（最终 `.md` 写完后跑）：
+- 删 `transcript_run_*/chunks/` 和 `transcript_<backend>_part<N>/chunks/`（.wav 大文件）
+- 保留 `merged/all.txt` + `merged/all.srt`（小，每 part ~85KB，反查 / 重 cleanup 用）
+
+**触发时机**：
+- **推荐**：LLM cleanup pass 写完 `.md` 后**立即**跑
+- **兜底**：7 天前的中间产物手动 `rm -rf`
+
+**参数**：
+- `--purge`：连 `merged/` 一起删（彻底）
+- `--keep-wav`：保留 chunks/（覆盖默认）
+- `--dry-run`：只打印不删
+
+**示例**：
+```bash
+# 在音频所在目录跑
+cd ~/Desktop/即时学习/2026-06-09
+bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh
+
+# 看看会删什么
+bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh --dry-run
+
+# 彻底删（包括 merged/）
+bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh --purge
+```
 
 ## Backends
 

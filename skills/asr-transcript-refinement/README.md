@@ -47,6 +47,12 @@ source ../.venv-funasr/bin/activate
 
 ## 使用
 
+**先问 2 件事**（详见 [SKILL.md 的 Quick Decision](./SKILL.md#quick-decisionllm-第一步必须问)）：
+1. **单人还是多人**？→ 决定 backend（多人 → FunASR local 拿说话人分离，单人 → Stepfun cloud 快 2-3x）
+2. **多长**？→ < 10min 不切，≥ 10min 自动切
+
+不想答直接走默认（本地 FunASR，质量上限更高）：
+
 ```bash
 # 完整流水线（split + transcribe + merge）
 bash scripts/pipeline.sh your_podcast.mp3 ./output_dir
@@ -106,6 +112,11 @@ bash scripts/verify.sh final_transcript.md
 ## 为什么不用 sherpa-onnx？
 
 `SKILL.md` 里有完整讨论。简短版：sherpa-onnx int8 量化版跑得快但牺牲精度，"次等"就是因为这个。FunASR 官方全精度在中文 CER 上显著更强。
+
+## 输出格式与中间产物清理
+
+- **最终 `.md` 统一格式**：YAML frontmatter（date / source / duration / backend / speakers / notes）+ H1 = 文件名 + H2 = 主题节 + `**Speaker N:**` 加粗段落。详见 [SKILL.md 的 Output Format](./SKILL.md#output-format)。
+- **中间产物清理**：最终 `.md` 写完后跑 `bash scripts/cleanup.sh` 删 `chunks/*.wav`（每 part 100-200MB），保留 `merged/all.txt` 反查。详见 [SKILL.md 的 Cleanup Intermediate Files](./SKILL.md#cleanup-intermediate-files)。
 
 ## 路线图
 
