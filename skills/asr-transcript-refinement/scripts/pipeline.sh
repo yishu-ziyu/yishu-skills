@@ -16,31 +16,43 @@ if [ ! -f "$INPUT" ]; then
   exit 1
 fi
 
-if [ ! -d "$VENV_DIR" ]; then
-  echo "❌ Venv not found at $VENV_DIR. Run: bash setup.sh"
-  exit 1
+# Backend selection: Stepfun cloud (fast, cheap) if STEP_API_KEY is set, else FunASR local
+if [ -n "$STEP_API_KEY" ]; then
+  BACKEND="stepfun"
+else
+  BACKEND="funasr"
+  if [ ! -d "$VENV_DIR" ]; then
+    echo "❌ FunASR venv not found at $VENV_DIR. Run: bash setup.sh"
+    echo "   (or set STEP_API_KEY to use the Stepfun cloud backend instead)"
+    exit 1
+  fi
 fi
 
 mkdir -p "$OUT_DIR"
 CHUNKS_DIR="$OUT_DIR/chunks"
 MERGED_DIR="$OUT_DIR/merged"
 
-echo "=== ASR Transcript Pipeline (speed-first, sequential) ==="
+echo "=== ASR Transcript Pipeline (speed-first, sequential, backend=$BACKEND) ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUT_DIR"
-echo "Venv:     $VENV_DIR"
+[ "$BACKEND" = "funasr" ] && echo "Venv:     $VENV_DIR"
 echo ""
 
 # Step 1: split
-echo "--- Step 1/4: split ---"
-CHUNKS_DIR_RES=$(bash "$SCRIPT_DIR/split.sh" "$INPUT" "$CHUNKS_DIR" 600)
+# Chunk size depends on backend: Stepfun SSE limits base64 to 10MB
+# (3min 16kHz mono WAV = 7.5MB base64, safe). FunASR local has no such limit.
+if [ "$BACKEND" = "stepfun" ]; then
+  CHUNK_SEC=180
+else
+  CHUNK_SEC=600
+fi
+echo "--- Step 1/4: split (chunk=${CHUNK_SEC}s for $BACKEND) ---"
+CHUNKS_DIR_RES=$(bash "$SCRIPT_DIR/split.sh" "$INPUT" "$CHUNKS_DIR" "$CHUNK_SEC")
 N_CHUNKS=$(ls -1 "$CHUNKS_DIR"/chunk_*.wav 2>/dev/null | wc -l | tr -d ' ')
 
 # Step 2: transcribe each chunk (sequential — for parallel, dispatch sub-agents from main)
 echo ""
-# Backend selection: Stepfun cloud (fast, cheap) if STEP_API_KEY is set, else FunASR local
-if [ -n "$STEP_API_KEY" ]; then
-  BACKEND="stepfun"
+if [ "$BACKEND" = "stepfun" ]; then
   echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=stepfun] ---"
   for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
     chunk_prefix="${chunk_wav%.wav}"
@@ -48,7 +60,6 @@ if [ -n "$STEP_API_KEY" ]; then
     python3 "$SCRIPT_DIR/transcribe_stepfun.py" "$chunk_wav" "$chunk_prefix"
   done
 else
-  BACKEND="funasr"
   echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=funasr] ---"
   source "$VENV_DIR/bin/activate"
   for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
