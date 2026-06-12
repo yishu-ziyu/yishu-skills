@@ -15,6 +15,7 @@
 - **速度快**——M2 Mac 上 8.6x 实时（含 VAD + 说话人分离）
 - **长音频友好**——>10 分钟自动 ffmpeg 切分 + sub-agent 并行
 - **模型对**——用 FunASR 官方全精度 SenseVoice-Small，不用 sherpa-onnx int8
+- **多 backend**——默认本地 FunASR，**可选 Stepfun 阶跃星辰云 ASR**（`stepaudio-2.5-asr`，0.15 元/小时），设 `STEP_API_KEY` 自动切换
 
 ## 速度 vs 质量
 
@@ -110,7 +111,8 @@ bash scripts/verify.sh final_transcript.md
 
 - [x] Speed-first 模式
 - [x] Rigorous 模式（opt-in）
-- [x] FunASR 后端
+- [x] FunASR 本地后端
+- [x] Stepfun 云 ASR 后端（`stepaudio-2.5-asr`，opt-in via `STEP_API_KEY`）
 - [ ] Whisper large-v3-turbo 后端（对比 benchmark）
 - [ ] Apple Silicon MLX 加速（社区等官方 PR）
 

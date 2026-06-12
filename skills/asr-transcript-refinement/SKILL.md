@@ -1,15 +1,17 @@
 ---
 name: asr-transcript-refinement
-description: Use when transcribing audio (podcast/video audio/meeting) into clean Chinese paragraph form. Two modes — speed-first (default, ~15 min for 1 hr audio on M2) with FunASR + single LLM cleanup, and rigorous (opt-in, ~60-90 min) with multi-agent producer-reviewer for 100% accuracy
+description: Use when transcribing audio (podcast/video audio/meeting) into clean Chinese paragraph form. Two modes — speed-first (default, ~15 min for 1 hr audio on M2) with FunASR + single LLM cleanup, and rigorous (opt-in, ~60-90 min) with multi-agent producer-reviewer for 100% accuracy. Two backends — FunASR local (default, free) and Stepfun cloud stepaudio-2.5-asr (opt-in via STEP_API_KEY, 0.15 元/小时)
 ---
 
 # ASR Transcript Pipeline
 
-> **v2 (2026-06-12)** — Dual mode. Speed-first is default, rigorous is opt-in.
+> **v3 (2026-06-12)** — Dual mode × Dual backend. FunASR is default, Stepfun cloud is opt-in.
 
 ## Overview
 
 End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoice-Small 全精度**（官方 ModelScope）做 ASR，main thread 跑一遍 LLM cleanup 应用「100% 上下文确证」规则。Long audio（>10min）自动 ffmpeg 切分，sub-agent 并行转写。
+
+**Optional cloud backend**: [Stepfun 阶跃星辰 `stepaudio-2.5-asr`](https://platform.stepfun.com)（Step Plan 订阅）— 0.15 元/小时，启用方法 `export STEP_API_KEY=...` 即可自动切换。
 
 **Core principle**: 留口误比瞎猜准 — preserve speaker fragments rather than paraphrase. Only fix ASR errors with 100% contextual confidence.
 
@@ -108,14 +110,37 @@ Sub-agent 1 Write = 1 个 chunk，避免长操作。
 
 | 脚本 | 用途 | 何时跑 |
 |------|------|--------|
-| `scripts/setup.sh` | 创建 venv + 装 FunASR + 预热模型 | 首次使用 |
+| `scripts/setup.sh` | 创建 venv + 装 FunASR + 预热模型 | 首次使用（FunASR backend） |
 | `scripts/split.sh` | ffmpeg 切 10min chunks | 主线程，转写前 |
-| `scripts/transcribe_chunk.py` | FunASR per-chunk 转写 | Sub-agent 跑 |
+| `scripts/transcribe_chunk.py` | FunASR per-chunk 转写（local） | Sub-agent 跑（默认 backend） |
+| `scripts/transcribe_stepfun.py` | Stepfun cloud ASR per-chunk | Sub-agent 跑（设了 `STEP_API_KEY` 时） |
 | `scripts/merge.py` | 合并 SRT + TXT（按时间戳） | 主线程，转写后 |
 | `scripts/verify.sh` | grep 已知坏模式 + 时间戳残留 | 主线程，cleanup 后 |
 | `scripts/pipeline.sh` | 一键跑完 speed-first 全流程 | 快速验证 |
 
 **重要**：用户机器上 **MPS 加速的 FunASR** 是最常见路径，setup.sh 装好就能用。**不要**用 sherpa-onnx int8 替代——那是 v1 的"次等"方案。
+
+## Backends
+
+`pipeline.sh` 和 sub-agent 脚本**根据环境变量自动选 backend**：
+
+| Backend | 触发条件 | 何时用 |
+|---|---|---|
+| **FunASR**（local） | `STEP_API_KEY` 未设 | 默认路径，0 成本，本地推理 |
+| **Stepfun cloud** | `STEP_API_KEY` 已设 | 不方便本地装 venv / 想省时间 / 有 Step Plan 套餐时 |
+
+```bash
+# 默认：FunASR local
+bash scripts/pipeline.sh input.mp3
+
+# 切到 Stepfun cloud
+export STEP_API_KEY=sk-...   # 或你的 Step Plan key
+bash scripts/pipeline.sh input.mp3
+```
+
+**Stepfun 后端** (`transcribe_stepfun.py`) 用 SSE 流式 endpoint（`/v1/audio/asr/sse`），单 chunk 1-2 分钟音频实测 3-4 秒返回。价格 `stepaudio-2.5-asr` **0.15 元/小时**（5h 周配额），无 setup 成本。**只缺说话人分离**——如果需要 diarization，回退 FunASR（带 `cam++` 模型）。
+
+**Webhook-like 注意事项**：Stepfun 不支持自定义说话人识别，TXT 里会写 `Speaker 0`（merge.py 兼容 FunASR 格式），下游 LLM cleanup 看到单一 speaker 自然合并。
 
 ## Setup (One-time)
 
@@ -172,3 +197,12 @@ source .venv-funasr/bin/activate   # 每次新 shell 都要 source
 - 18 上下文确认 + 6 批改
 - 1736 段，最终 grep 残留 = 0
 - 这是 rigorous 模式的典型用例
+
+### Test case 3: Stepfun cloud backend (2026-06-12)
+- 文件：`(杨阿怡)烂梗分享` 1.4MB / 1m29s
+- Backend：`stepaudio-2.5-asr`（Step Plan 订阅）
+- 切分：1 chunk（<10min 不切）
+- 转写耗时：3.7s（含 SSE 整流）
+- 输出 28 段 SRT，ITN 正常，标点干净
+- `merge.py` 兼容性 OK（输出一致）
+- **对比 FunASR**：精度肉眼相当，速度快 2-3x（无模型加载），价格 ~0.005 元

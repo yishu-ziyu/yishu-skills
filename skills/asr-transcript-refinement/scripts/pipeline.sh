@@ -38,13 +38,25 @@ N_CHUNKS=$(ls -1 "$CHUNKS_DIR"/chunk_*.wav 2>/dev/null | wc -l | tr -d ' ')
 
 # Step 2: transcribe each chunk (sequential — for parallel, dispatch sub-agents from main)
 echo ""
-echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) ---"
-source "$VENV_DIR/bin/activate"
-for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
-  chunk_prefix="${chunk_wav%.wav}"
-  echo "[chunk] $(basename "$chunk_wav")"
-  python "$SCRIPT_DIR/transcribe_chunk.py" "$chunk_wav" "$chunk_prefix"
-done
+# Backend selection: Stepfun cloud (fast, cheap) if STEP_API_KEY is set, else FunASR local
+if [ -n "$STEP_API_KEY" ]; then
+  BACKEND="stepfun"
+  echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=stepfun] ---"
+  for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
+    chunk_prefix="${chunk_wav%.wav}"
+    echo "[chunk] $(basename "$chunk_wav")"
+    python3 "$SCRIPT_DIR/transcribe_stepfun.py" "$chunk_wav" "$chunk_prefix"
+  done
+else
+  BACKEND="funasr"
+  echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=funasr] ---"
+  source "$VENV_DIR/bin/activate"
+  for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
+    chunk_prefix="${chunk_wav%.wav}"
+    echo "[chunk] $(basename "$chunk_wav")"
+    python "$SCRIPT_DIR/transcribe_chunk.py" "$chunk_wav" "$chunk_prefix"
+  done
+fi
 
 # Step 3: merge
 echo ""
