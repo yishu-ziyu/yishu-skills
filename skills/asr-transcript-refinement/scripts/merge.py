@@ -68,9 +68,9 @@ def main():
         txt_path = chunk_path.with_suffix(".txt")
         if txt_path.exists():
             for line in txt_path.read_text().splitlines():
-                m = re.match(r"\[(\S+)\] Speaker \d+: (.*)", line)
+                m = re.match(r"\[(\S+)\] (Speaker \d+: .*)", line)
                 if m:
-                    ts = parse_srt_ts(m.group(1).replace(",", ","))  # SRT-style
+                    ts = parse_srt_ts(m.group(1))
                     merged_txt_lines.append(f"[{format_srt_ts(ts + offset)}] {m.group(2)}")
         offset += chunk_max_end
 
