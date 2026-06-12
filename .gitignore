@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+.venv-funasr/
+venv/
+env/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Test artifacts (FunASR transcription outputs)
+test_pipeline/
+*.wav
+*.srt
+*.txt
+!scripts/*.txt
+!skills/*/scripts/*.txt
+!skills/*/README.md
+!skills/*/SKILL.md
+!README.md
+!LICENSE
+!.gitignore
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Audio / video working files
+*.mp3
+*.mp4
+*.m4a
+*.flac
+*.ogg
+*.webm
+*.mov
