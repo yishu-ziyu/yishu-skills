@@ -1,0 +1,27 @@
+{
+  "skill_name": "eve-transcriber",
+  "version": "1.0.0",
+  "description": "Qwen3-ASR local transcription skill evaluation",
+  "evals": [
+    {
+      "id": 1,
+      "name": "长音频转录 (337秒, 4段)",
+      "prompt": "转录这个音频 ~/Desktop/即时学习/BV1qSAzzAEvR.mp4",
+      "expected_output": "生成 Markdown 文件，包含完整转录内容",
+      "actual_output": {
+        "output_file": "/Users/mahaoxuan/Desktop/即时学习/BV1qSAzzAEvR.md",
+        "file_size": 6094,
+        "segments": 4,
+        "duration": "337.557313秒"
+      },
+      "result": "PASS",
+      "notes": "自动分段成功，模型复用提升速度"
+    }
+  ],
+  "summary": {
+    "total_evals": 1,
+    "passed": 1,
+    "failed": 0,
+    "pass_rate": "100%"
+  }
+}

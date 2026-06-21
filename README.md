@@ -5,12 +5,14 @@
 #### 奕枢的公开 Claude Code skills 库
 
 [![License](https://img.shields.io/badge/License-MIT-3B82F6?style=for-the-badge)](./LICENSE)
-[![Skills](https://img.shields.io/badge/Skills-1-10B981?style=for-the-badge)](#-skills)
+[![Skills](https://img.shields.io/badge/Skills-2-10B981?style=for-the-badge)](#-skills)
 [![Platform](https://img.shields.io/badge/Claude_Code-Skill-8B5CF6?style=for-the-badge)](#-关于)
 
 </div>
 
 我自己每天在用、踩过坑验证过好用的 Claude Code skills，挑能公开的放在这里。每个 skill 都自包含文档 + 脚本，clone 下来按 `bash scripts/setup.sh` 就能跑。
+
+> 2026-06 合并了 [agentic-assets](https://github.com/yishu-ziyu/agentic-assets) 的全部内容至此，后者保留为归档仓库。
 
 ---
 
@@ -19,6 +21,7 @@
 | 名字 | 一句话 | 文档 |
 |---|---|---|
 | 🎙️ [**asr-transcript-refinement**](#-skills) | 音频 → 干净文稿（双模式 speed-first / rigorous） | [SKILL.md](./skills/asr-transcript-refinement/SKILL.md) · [README](./skills/asr-transcript-refinement/README.md) |
+| 🎙️ [**transcription/eve-transcriber**](#-skills) | Qwen3-ASR 本地语音转文字（历史版） | [SKILL.md](./skills/transcription/eve-transcriber/SKILL.md) |
 
 ---
 
@@ -77,9 +80,44 @@ cd ~/.claude/skills/<skill-name> && bash scripts/setup.sh
 
 ---
 
+## 🗂️ 其他内容
+
+<a id="-other"></a>
+
+### Frameworks
+
+开发方法论框架，见 [frameworks/](./frameworks/) 目录：
+
+| 框架 | 描述 |
+|------|------|
+| [meta-flywheel](./frameworks/meta-flywheel/SKILL.md) | 感知→决策→执行→沉淀→进化的自我增强系统 |
+| [skill-eval-framework](./frameworks/skill-eval-framework.md) | Skill 评估方法 |
+| [iteration-process](./frameworks/iteration-process.md) | 迭代流程 |
+
+### Trading
+
+股票研究工具（回测、可视化），见 [trading/stock-research/](./trading/stock-research/)。
+
+### References
+
+- [SKILL.md 编写指南](./references/skill-guide.md)
+- [框架设计原则](./references/framework-principles.md)
+- [发布流程](./references/release-process.md)
+
+### LOGS
+
+开发日志和复盘记录，见 [LOGS/](./LOGS/)。
+
+### Playbooks
+
+实战复盘和最佳实践，见 [playbooks/](./playbooks/)。
+
+---
+
 ## 🛣️ 路线图
 
 - [x] **asr-transcript-refinement** — 音频转写精修流水线
+- [x] **eve-transcriber** — Qwen3-ASR 本地转录（历史版）
 - [ ] TBD — 等攒到下一个值得公开的 skill 再加
 
 ---
