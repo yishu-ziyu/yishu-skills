@@ -1,0 +1,23 @@
+{
+  "skill_name": "meta-flywheel",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "监控我执行一个简单的npm项目构建任务，记录过程，完成后自动封装为build-npm-project Skill",
+      "expected_output": "生成任务日志，成功构建后自动封装新Skill，提示创建成功",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "模拟执行一个会出错的命令，测试bug记录功能是否正常将错误写入知识库",
+      "expected_output": "检测到错误，将错误信息和解决方案同步到bug知识库",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "重复执行3次相同的命令，测试高频操作自动封装为简易Skill的功能",
+      "expected_output": "识别到重复操作，自动封装为轻量化简易Skill",
+      "files": []
+    }
+  ]
+}
