@@ -23,6 +23,13 @@
 | 🎙️ [**asr-transcript-refinement**](#-skills) | 音频 → 干净文稿（双模式 speed-first / rigorous） | [SKILL.md](./skills/asr-transcript-refinement/SKILL.md) · [README](./skills/asr-transcript-refinement/README.md) |
 | 🎙️ [**transcription/eve-transcriber**](#-skills) | Qwen3-ASR 本地语音转文字（历史版） | [SKILL.md](./skills/transcription/eve-transcriber/SKILL.md) |
 
+
+| 📝 [**academic-peer-review-workflow**](./skills/academic-peer-review-workflow) | 多轮审稿流程管理：从投稿到录用的全流程导航 | [SKILL.md](./skills/academic-peer-review-workflow/SKILL.md) |
+| 📝 [**academic-reference-management**](./skills/academic-reference-management) | 参考文献选择、评估与格式化 | [SKILL.md](./skills/academic-reference-management/SKILL.md) |
+| 📝 [**academic-manuscript-revision**](./skills/academic-manuscript-revision) | 系统化论文修订方法论（冷却法、诵读法、求教法） | [SKILL.md](./skills/academic-manuscript-revision/SKILL.md) |
+| 📝 [**academic-paper-revision**](./skills/academic-paper-revision) | 五字法系统性论文修订框架 | [SKILL.md](./skills/academic-paper-revision/SKILL.md) |
+| 📝 [**gbt7714-citation-standards**](./skills/gbt7714-citation-standards) | GB/T 7714-2015 引用格式标准 | [SKILL.md](./skills/gbt7714-citation-standards/SKILL.md) |
+
 ---
 
 ## 📦 安装
