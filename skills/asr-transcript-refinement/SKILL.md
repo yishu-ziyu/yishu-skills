@@ -89,7 +89,8 @@ End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoi
                               verify.sh：grep 已知坏模式
                                               │
                                               ▼
-                              ~/Desktop/即时学习/【转录】{标题}.md
+                              ~/Desktop/即时学习/<audio-slug>/transcript.md
+                              (多 part: part1.md / part2.md / ...)
 ```
 
 ### Sub-agent Dispatch Pattern
@@ -184,6 +185,34 @@ notes: 4 人对谈；`[存疑：xxx]` 表示 ASR 无法 100% 确证
 - Q 主题节数 ≥ 5
 - `---` 只在 frontmatter 闭合之后**不**出现
 - 不出现 `### Speaker X：副标题` 模式
+
+## Output Location
+
+**走法 B:一音频一文件夹**——每段音频一个独立子目录,日期写进 frontmatter(已在 Output Format 里写)而不是目录:
+
+```
+~/Desktop/即时学习/
+├── <audio-slug>/               # 一音频一文件夹
+│   ├── transcript.md            #   单 part 音频
+│   ├── part<N>.md              #   多 part 音频 (part1.md / part2.md / ...)
+│   ├── source.m4a              #   原始音频(可选,留作反查)
+│   ├── source_part<N>.m4a      #   多 part 原始音频
+│   └── merged/                 #   all.srt + all.txt(cleanup.sh 留,chunks 删)
+├── archive/                    # 旧流程产物 + test scripts
+└── <topic-folder>/             # 手动策展(Behave共读/视频学习/LOGS/播客/)
+```
+
+**`<audio-slug>` 命名**:
+- **有主题**: 用主题或人名 (e.g., `Avery胡_优绩主义男孩的死亡`、`从失败到领悟_OPC复利循环`)
+- **临时未取名**: 源文件名去扩展名,或 `<YYYYMMDD_HHMMSS>_<topic>` (e.g., `20260609_012544_4人对谈`)
+- **避免**: `【转录】` 前缀(已废弃)、日期单层 folder(同日多音频会撞)
+
+**为什么不用日期 folder**:
+- 同日多音频不再挤一个目录
+- Topic 浏览友好(按 slug 字母/拼音就分得开)
+- `rm -rf <slug>/` 一键归档整段音频(含 source + merged)
+
+完整约定 + 反例见 `~/Desktop/即时学习/README.md`。
 
 ## Cleanup Intermediate Files
 
@@ -284,7 +313,7 @@ source .venv-funasr/bin/activate   # 每次新 shell 都要 source
 - 转写耗时：10.7s（RTF 0.116, 8.6x 实时）
 - 模型加载：70.4s（首次）
 - LLM cleanup：~30s
-- 输出：`~/Desktop/即时学习/【转录】邪修开发Agent智能体.md`
+- 输出：`~/Desktop/即时学习/邪修开发Agent智能体/transcript.md`
 - 质量：whisper base 错 4 处的专有名词（"skill的调用"/"上下文压缩"/"skill的文档"/"执行任务时"），FunASR 全对
 - "G-E Memory" 这个点需要人工确认（FunASR 给 "记忆 Memory"）
 

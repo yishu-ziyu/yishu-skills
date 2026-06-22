@@ -96,7 +96,8 @@ bash scripts/verify.sh final_transcript.md
                        verify.sh：grep 已知坏模式
                                           │
                                           ▼
-                       ~/Desktop/即时学习/【转录】{标题}.md
+                       ~/Desktop/即时学习/<audio-slug>/transcript.md
+                       (多 part: part1.md / part2.md / ...)
 ```
 
 ## 性能（M2 Mac 实测）
