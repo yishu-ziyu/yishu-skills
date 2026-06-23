@@ -1,0 +1,74 @@
+{
+  "skill_name": "research",
+  "version": "1.0",
+  "description": "完整研究工作流：研究启动→研报写作→图表生成→幻灯片输出",
+  "evals": [
+    {
+      "id": 1,
+      "name": "投资研报场景",
+      "prompt": "帮我写一份SpaceX的投资分析报告，15分钟，面向投资方",
+      "expected_output": "7章节研报草稿 + Context Bundle + 审核报告",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "Phase 1 输出结构化确认单（类型/目的/时长/材料）",
+          "type": "format"
+        },
+        {
+          "id": "a2",
+          "text": "Phase 2 分发至 research-report 模块",
+          "type": "module_routing"
+        },
+        {
+          "id": "a3",
+          "text": "Context Bundle 包含可信度分级",
+          "type": "quality"
+        },
+        {
+          "id": "a4",
+          "text": "审核Agent覆盖准确/逻辑/论证/写作/格式5个维度",
+          "type": "verification"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "学术研究场景",
+      "prompt": "帮我研究一下RLHF（人类反馈强化学习）的理论基础，用于论文答辩",
+      "expected_output": "结构化概念分解 + 进度笔记",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "分发至 research-session 模块",
+          "type": "module_routing"
+        },
+        {
+          "id": "a2",
+          "text": "概念分解为3-5个核心概念",
+          "type": "structure"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "用户中途介入",
+      "prompt": "帮我研究一个公司，但我不想要标准7章节，我要自己定义章节结构",
+      "expected_output": "自定义章节结构，跳过标准章节模板",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "Phase 1 确认章节结构可自定义",
+          "type": "flexibility"
+        },
+        {
+          "id": "a2",
+          "text": "写作Agent按用户自定义章节执行",
+          "type": "user_control"
+        }
+      ],
+      "files": []
+    }
+  ]
+}
