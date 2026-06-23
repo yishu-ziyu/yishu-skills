@@ -1,0 +1,102 @@
+{
+  "skill_name": "research-to-slides",
+  "version": "1.0",
+  "description": "将研究内容转化为可演示的HTML幻灯片",
+  "evals": [
+    {
+      "id": 1,
+      "name": "IPO分析场景-投资方",
+      "prompt": "帮我做一个关于SpaceX最新估值的分析演示，15分钟，面向投资方",
+      "expected_output": "包含3个记忆点、SpaceX公司产品研究、市场竞争研究、风险研究、HTML幻灯片输出",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "Phase 1 输出包含结构化确认单（主题/听众/目的/时长）",
+          "type": "format"
+        },
+        {
+          "id": "a2",
+          "text": "Phase 2 并行启动3个搜索Agent（公司产品/市场竞争/风险机会）",
+          "type": "agent_count"
+        },
+        {
+          "id": "a3",
+          "text": "Phase 3 提取3个记忆点（对应15分钟标准版）",
+          "type": "count",
+          "expected": 3
+        },
+        {
+          "id": "a4",
+          "text": "记忆点格式包含数字+对比或悖论感或速度感",
+          "type": "quality"
+        },
+        {
+          "id": "a5",
+          "text": "生成HTML包含柱状图、环形图、时间线中至少2种可视化",
+          "type": "visualization"
+        },
+        {
+          "id": "a6",
+          "text": "数字比例正确（不同数值对应不同视觉长度）",
+          "type": "chart_accuracy"
+        },
+        {
+          "id": "a7",
+          "text": "每页内容不超出密度限制（标题+最多6个要点）",
+          "type": "density"
+        },
+        {
+          "id": "a8",
+          "text": "数据有来源标注",
+          "type": "source"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "行业分析场景-领导决策",
+      "prompt": "帮我做一个AI芯片行业5分钟极简版汇报，听众是领导，用于决策支持",
+      "expected_output": "1-2个记忆点、简洁结论导向、HTML幻灯片输出",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "Phase 1 确认为5分钟极简版，1-2个记忆点",
+          "type": "count",
+          "expected": 2
+        },
+        {
+          "id": "a2",
+          "text": "Phase 3 记忆点不超过2个",
+          "type": "count_max",
+          "expected": 2
+        },
+        {
+          "id": "a3",
+          "text": "幻灯片结构精简，无过多详情页",
+          "type": "density"
+        }
+      ],
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "用户中途介入-修改记忆点",
+      "prompt": "帮我做一个GPT-5的分析，但我要自己提供核心观点，不要自动提取",
+      "expected_output": "Phase 3 跳过自动提取，用户直接提供记忆点",
+      "assertions": [
+        {
+          "id": "a1",
+          "text": "Phase 1 选择'仅有主题'，跳过资料提供",
+          "type": "content_option"
+        },
+        {
+          "id": "a2",
+          "text": "Phase 3 记忆点由用户主动提供，非自动提取",
+          "type": "user_input"
+        }
+      ],
+      "files": []
+    }
+  ]
+}
