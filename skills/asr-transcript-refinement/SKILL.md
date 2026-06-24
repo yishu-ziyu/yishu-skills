@@ -1,328 +1,265 @@
 ---
 name: asr-transcript-refinement
-description: Use when transcribing audio (podcast/video audio/meeting) into clean Chinese paragraph form. Two modes — speed-first (default, ~8-15 min for 1 hr audio on M2) with Fun-ASR-Nano GGUF + single LLM cleanup, and rigorous (opt-in, ~60-90 min) with multi-agent producer-reviewer for 100% accuracy. Two backends — Fun-ASR-Nano GGUF local (default, free, zero Python deps) and Stepfun cloud stepaudio-2.5-asr (opt-in via STEP_API_KEY, 0.15 元/小时).
+description: Use when transcribing audio (podcast / video / meeting) into clean Chinese paragraph form. Default backend is Fun-ASR-Nano GGUF (local, free, no Python venv, built-in VAD). Optional Stepfun cloud `stepaudio-2.5-asr` (opt-in, 0.15 元/小时). Single 70/30 split = single-speaker/multi-speaker — skill supports both.
 ---
 
 # ASR Transcript Pipeline
 
-> **v4 (2026-06-24)** — GGUF binary backend. Fun-ASR-Nano (encoder + Qwen3-0.6B LLM) via llama-funasr-cli, zero Python, zero PyTorch at runtime. Stepfun cloud still available as opt-in.
+> **v4 (2026-06-24)** — Default backend = Fun-ASR-Nano GGUF. Stepfun cloud is opt-in backup. PyTorch FunASR path removed (2026-06-24).
 
 ## Overview
 
-End-to-end audio → clean transcript pipeline. Default uses **Fun-ASR-Nano GGUF**（encoder f16 + Qwen3-0.6B Q8_0，total ~1.2 GB）走 llama.cpp 二进制直接转写，main thread 跑一遍 LLM cleanup 应用「100% 上下文确证」规则。Long audio（>10min）自动 ffmpeg 切分，sub-agent 并行转写。
+End-to-end audio → clean transcript pipeline. Default uses **Fun-ASR-Nano** (FunAudioLLM GGUF release, encoder f16 + Qwen3-0.6B Q8_0, ~1.2G weights, ~1s binary startup, **no Python venv**) running on Apple Metal. Built-in FSMN-VAD segments long audio inside the binary — no ffmpeg chunking needed.
+
+**Why Nano over SenseVoice-Small**: 6/24 benchmark on 5m40s 单人播客 showed Nano 5x fewer errors (专有名词/数字残留/韩文乱码), costing 18s extra per 5m40s. Worth it.
+
+**Optional cloud backend**: [Stepfun 阶跃星辰 `stepaudio-2.5-asr`](https://platform.stepfun.com) — 0.15 元/小时, fast (4-5s per 3min chunk). No built-in speaker diarization. Opt in via `STEP_ASR_BACKEND=stepfun`.
 
 **Core principle**: 留口误比瞎猜准 — preserve speaker fragments rather than paraphrase. Only fix ASR errors with 100% contextual confidence.
 
-**Optional cloud backend**: [Stepfun 阶跃星辰 `stepaudio-2.5-asr`](https://platform.stepfun.com)（Step Plan 订阅）— 0.15 元/小时，启用方法 `export STEP_API_KEY=...` 即可自动切换。
-
-## Quick Decision（LLM 第一步必须问）
+## Quick Decision (LLM first turn)
 
 **收到"转录这个音频"时不要直接跑命令，先问用户 2 个问题**：
 
-| 决策 | 单选 | 影响 |
-|------|------|------|
-| **1. 说话人数量？** | 单人（独白 / 单主播 / 视频音轨解说）<br>多人（对话 / 访谈 / 圆桌 / 多人播客） | 影响 cleanup 格式（单人不需要 speaker 标签） |
-| **2. 时长？** | < 10min<br>≥ 10min | 不切分<br>ffmpeg 自动切 10min chunks |
+| 决策 | 单选 | 推荐 backend |
+|------|------|--------------|
+| **1. 说话人数量？** | 单人（独白 / 单主播 / 视频音轨解说）<br>多人（对话 / 访谈 / 圆桌 / 多人播客）| 单人 → **Fun-ASR-Nano GGUF**（默认）<br>多人 → **Fun-ASR-Nano GGUF**（70/30 用 Nano, LLM cleanup 阶段分 Speaker） |
+| **2. 时长？** | < 10min<br>≥ 10min | 不切分（GGUF 内置 VAD 处理）<br>仍然不切分（VAD 自动切） |
 
-**默认推荐**（用户不想回答时）：**本地 GGUF**——零 Python 依赖，质量上限高，Mac M 系列原生 Metal 加速。
+**默认推荐**（用户不想回答时）：**本地 Fun-ASR-Nano** —— 不限说话人，不切分，启动 1s。
 
 **询问模板**（复制即用）：
-> 转录前先问 2 个：
-> 1. 录音是**单人**还是**多人**？
-> 2. **多长**？< 10min 不切分，≥ 10min 自动切。
+> 转录前先问 1 个：
+> 1. 录音是**单人**还是**多人**？决定 cleanup 阶段要不要标 Speaker（Nano 不区分说话人）。
+>
+> 不想答的话默认走本地 Nano。
+
+## Backends
+
+| Backend | 触发条件 | 何时用 | 速度 (5m40s 音频) |
+|---------|----------|--------|---------------------|
+| **Fun-ASR-Nano GGUF** (本地) | 默认；或 `STEP_ASR_BACKEND != stepfun` | 永远首选 — 0 成本，本地推理，无网络 | ~40s (RTF 8-9x) |
+| **Stepfun cloud** | `STEP_ASR_BACKEND=stepfun` 显式 opt-in | 不想本地推理 / 临时大文件 / 验证对照 | ~5s for 3min chunk (RTF 30x) |
+
+```bash
+# 默认：本地 Nano
+bash scripts/pipeline.sh input.wav
+
+# 显式 opt-in Stepfun
+STEP_ASR_BACKEND=stepfun bash scripts/pipeline.sh input.wav
+```
+
+**重要**：skill **不再根据 `STEP_API_KEY` 自动切 Stepfun** — 你总是有 `STEP_API_KEY`（其它用途），自动切会导致每次都误走云端。改用 `STEP_ASR_BACKEND=stepfun` 显式 opt-in。
 
 ## When to Use
 
 - 任何长度的音频文件（播客 / 抖音 B站视频音轨 / 会议录音）
-- 中文为主，FunASR 也支持 50+ 语言
-- 输出想要段落形式、不要 SRT 时间戳
+- 中文为主，Nano 也支持 50+ 语言
+- 输出想要段落形式
 
 **Don't use when:**
 
-- 实时流式转写（用 streaming ASR 方案）
-- 已经有干净文稿（直接 skip）
+- 实时流式转写
+- 已经有干净文稿
 - 需要翻译（这是另一个 task）
-- 单词汇量 / 字幕嵌入（直接 SRT 输出）
-
-## Two Modes
-
-| 维度 | **Speed-first**（默认） | **Rigorous**（opt-in） |
-|------|------------------------|----------------------|
-| ASR 模型 | Fun-ASR-Nano GGUF Q8 | 同 |
-| 切分 | >10min 自动切 | 手动 ≥5 段 |
-| ASR 阶段 | Sub-agent 并行 | 单 agent 串行 |
-| LLM review | Main thread 单 pass | Producer ×3 + Reviewer ×3 交叉 |
-| 1 小时音频总耗时 | ~8 min（M2） | ~60-90 min |
-| 质量 | 90%（LLM cleanup 后） | 99%（人工 spot-check 后） |
-| 适用场景 | 播客 / 视频 / 日常 | 法律 / 医疗 / 学术 / 出版 |
-
-**默认走 speed-first**。需要 rigorous 时显式声明（"这个用 rigorous 模式"）。
+- 单词汇量 / 字幕嵌入视频（直接 SRT 输出即可，但 Nano 的 SRT 是**伪时间戳**——按字符数等分估算）
 
 ## Speed-First Workflow
 
 ```
 输入：单音频文件（任何长度）
   │
-  ├─ < 10 min ─────────────────────────────────────────┐
+  ├─ 默认 backend = Nano ──────────────────────────────┐
   │                                                     │
-  └─ ≥ 10 min ──→ ffmpeg 切 10min chunks ──┐           │
-                                              │           │
-                                              ▼           ▼
-                              派 N 个 sub-agent 并行转写：
-                              每个 agent 跑 transcribe_chunk.py
-                              （llama-funasr-cli 二进制，无需 Python）
-                              输出 SRT + 纯文本到中间目录
-                                              │
-                                              ▼
-                              Main 收集 SRT/TXT
-                                              │
-                                              ▼
-                              LLM cleanup（单 pass）：
-                              - 应用「100% 上下文确证」规则
-                              - 删除时间戳，合并为段落
-                              - 标注存疑点
-                                              │
-                                              ▼
-                              verify.sh：grep 已知坏模式
-                                              │
-                                              ▼
-                              ~/Desktop/即时学习/<audio-slug>/transcript.md
-                              (多 part: part1.md / part2.md / ...)
+  └─ STEP_ASR_BACKEND=stepfun ──┐                       │
+                                  │                       │
+                                  ▼                       ▼
+                pipeline.sh 调 transcribe_funasr.py    3min 切分 + Stepfun SSE
+                (内置 VAD, 不切分)                     + merge.py
+                          │                             │
+                          ▼                             ▼
+                  source.srt (伪时间戳)              merged/all.srt (真时间戳)
+                  source.txt (按句切段)               merged/all.txt
+                          │                             │
+                          └──────────┬──────────────────┘
+                                     ▼
+                          Main: LLM cleanup (单 pass)
+                          - 删时间戳，合并为段落
+                          - 标 [存疑:xxx] inline
+                          - 多人音频分 Speaker
+                                     │
+                                     ▼
+                          bash scripts/verify.sh transcript.md
+                                     │
+                                     ▼
+                          ~/Desktop/即时学习/<slug>/transcript.md
+                          (或 part1.md / part2.md / ... 多 part)
 ```
 
-### Sub-agent Dispatch Pattern
+## Real Working Paths (2026-06-24 现状)
 
-Main 跑 `split.sh` 切完，列出去 N 个 chunk，然后**一次性 dispatch N 个 sub-agent**（Agent 工具），每个 agent 收到 prompt：
+| 文件 | 路径 | 说明 |
+|------|------|------|
+| GGUF binary | `~/Downloads/项目与数据/agent_audio_funasr/llama-funasr-nano` | arm64 native, Apple Metal |
+| GGUF model | `~/Downloads/项目与数据/agent_audio_funasr/nano-gguf/{funasr-encoder-f16.gguf, qwen3-0.6b-q8_0.gguf, fsmn-vad.gguf}` | ~1.2G total |
+| Wrapper | `~/Downloads/项目与数据/agent_audio_funasr/transcribe_funasr.py` | 本 skill 的实际入口（v2 加 SRT 输出） |
+| Skill scripts | `~/.claude/skills/asr-transcript-refinement/scripts/` | pipeline.sh / split.sh / merge.py / verify.sh / cleanup.sh / transcribe_stepfun.py |
+| Output | `~/Desktop/即时学习/<slug>/` | 一音频一文件夹 |
 
+**不要修改** wrapper 路径 — 它是用户 2026-06-22 自己装的位置。改 wrapper 路径会破坏链接。
+
+## SRT 输出（重要约束）
+
+`transcribe_funasr.py` 输出 SRT，但**时间戳是估算的**：
+
+- llama-funasr-nano 二进制 stdout 只有合并后的纯文本（不暴露 VAD 每段时间戳）
+- wrapper 按 `。！？!?` 切分文本，得到 N 个段
+- 每段时间戳 = `字符数 / 总字符数 × 音频总时长`（proportional allocation）
+- 最后一段 end 强制对齐音频总时长
+
+**这是设计取舍**：方案 A（改 C++ 源码暴露时间戳）需要重编 1-2h；方案 C（伪时间戳）= 0 改动 binary，覆盖 99% 反查场景。
+
+**何时不能用 SRT**：视频字幕嵌入（Final Cut / 剪映）需要真时间戳 — 走 Stepfun backend（输出真 SRT）或先 LLM cleanup 后手动对齐。
+
+## Cleanup Pass (Main Thread)
+
+LLM 拿到 `source.srt` + `source.txt` 后，单 pass 输出 `transcript.md`：
+
+**规则**（沿用 v3）：
+- 删 SRT 索引 + 时间戳，合并为段落
+- 多人音频分 `**Speaker N:**` 加粗前缀
+- `[存疑:xxx]` inline 标注不单列块
+- H2 节标题 = 主题切分（不写"概述"/"首先/其次/最后"八股）
+- `H1 = 文件名`（去掉"完整转录稿"后缀）
+
+**Hygiene 自检**（cleanup pass 完成后跑）：
+```bash
+bash scripts/verify.sh transcript.md
 ```
-你是转写 agent #N/M。
-- 输入：/path/to/chunk_NN.wav（10min 16kHz mono WAV）
-- 输出：/path/to/chunk_NN.srt 和 /path/to/chunk_NN.txt
-- 脚本：python3 transcribe_chunk.py /path/to/chunk_NN.wav /path/to/chunk_NN
-- 不需要激活 venv（llama-funasr-cli 是独立二进制）
-- 不要改输出（ITN 已经做了基础规范化）
-- 不要合并、不要删时间戳、不要"修正"任何东西
-- 完成后报告：处理时长、SRT 行数、是否遇到错
-```
-
-Sub-agent 1 Write = 1 个 chunk，避免长操作。
-
-## Rigorous Workflow（opt-in，仅当显式声明时使用）
-
-原 v1 流程保留：
-
-```
-1. PRE-PROCESS: Strip SRT timestamps, merge cross-line fragments
-2. GOLD STANDARD: Refine ONE segment → show user → get approval
-3. PHASE 1 - PRODUCERS (parallel):
-   N agents, each handles ≤3 files
-4. PHASE 2 - REVIEWERS (parallel, CIRCULAR cross-review):
-   N independent agents — A reviews B, B reviews C, C reviews A
-5. WRAP-UP: grep for systematic ASR patterns, sed batch fix
-6. VERIFY: grep timestamps=0, known-bad-terms=0
-```
-
-保留原因：法律/医疗/学术/出版场景，60-90 分钟的耗时换 100% 准确值得。**默认不跑这个**。
-
-## Scripts
-
-| 脚本 | 用途 | 何时跑 |
-|------|------|--------|
-| `scripts/setup.sh` | 下载 GGUF 模型 + llama-funasr-nano 二进制 | 首次使用（一次性） |
-| `scripts/split.sh` | ffmpeg 切 10min chunks | 主线程，转写前 |
-| `scripts/transcribe_chunk.py` | GGUF binary per-chunk 转写（local） | Sub-agent 跑（默认 backend） |
-| `scripts/transcribe_stepfun.py` | Stepfun cloud ASR per-chunk | Sub-agent 跑（设了 `STEP_API_KEY` 时） |
-| `scripts/merge.py` | 合并 SRT + TXT（按时间戳） | 主线程，转写后 |
-| `scripts/verify.sh` | grep 已知坏模式 + 时间戳残留 | 主线程，cleanup 后 |
-| `scripts/pipeline.sh` | 一键跑完 speed-first 全流程 | 快速验证 |
-| `scripts/cleanup.sh` | 删 ASR 中间产物（chunks/*.wav），保留 merged/ | 最终 `.md` 写完后 |
-
-**重要**：v4 起默认走 **GGUF 二进制路径**——不需要 Python venv、不需要 PyTorch、不需要激活环境。`setup.sh` 一键装完直接跑。`transcribe_chunk.py` 是 subprocess 调用二进制，不是 import funasr。
-
-**如果已有 `.venv-funasr`（v3 遗留）**：不影响，可以保留但不再使用。`cleanup.sh` 不会碰它。
 
 ## Output Format
 
-Cleanup 后的 `.md` 文件**统一格式**——YAML frontmatter + 简化段落结构：
+YAML frontmatter + 简化段落结构：
 
 ```markdown
 ---
-date: 2026-06-12
-source: 20260609_012544_part1.m4a
-duration: 66min
-backend: Fun-ASR-Nano GGUF (llama.cpp)
-speakers: 4 (Speaker 0/1/2/3)
-notes: 4 人对谈；`[存疑：xxx]` 表示 ASR 无法 100% 确证
+date: 2026-06-24
+source: fishcookies.wav
+duration: 5min40s
+backend: Fun-ASR-Nano GGUF (encoder f16 + Qwen3-0.6B Q8_0)
+speakers: 1 (single-speaker)
+notes: 单人播客; [存疑:xxx] 表示 ASR 无法 100% 确证
 ---
 
-# 20260609_012544_part1
+# fishcookies
 
-## 开场：[主题]
+## 开场: 自我介绍
 
 **Speaker 1:** [内容...]
 
-## Q1：[问题]？
+## 第一种方式: 模板套用
 
-**Speaker 2:** [内容...]
-—— [追问]？
-**Speaker 2:** [回应]
-
-**Speaker 0:** [内容...]
+**Speaker 1:** [内容...]
+—— [追问]?
+**Speaker 1:** [回应]
 ```
-
-**结构原则**：
-- **元信息 → frontmatter**（不在正文 blockquote）
-- **每节前后不写 `---`**（H2 标题已能视觉分组）
-- **Speaker 用 `**Speaker N:**` 加粗前缀**，每段开头一次；不写 `### Speaker X：副标题`（和 `**Speaker N:**` 重复）
-- **H1 = 文件名**，去掉"完整转录稿"后缀
-- **`[存疑：xxx]` inline 标注**（不单列块、不写"概述"段）
-- **关键术语加粗**（不写"首先/其次/最后"八股）
-
-**Hygiene 自检**（cleanup pass 完成后必跑）：
-- 时间戳残留 `[HH:MM:SS]` = 0
-- Speaker 标签数 ≥ N（对话参与人数）
-- Q 主题节数 ≥ 5
-- `---` 只在 frontmatter 闭合之后**不**出现
-- 不出现 `### Speaker X：副标题` 模式
 
 ## Output Location
 
-**走法 B:一音频一文件夹**——每段音频一个独立子目录,日期写进 frontmatter(已在 Output Format 里写)而不是目录:
+**走法 B: 一音频一文件夹** — 每段音频一个独立子目录,日期写进 frontmatter:
 
 ```
 ~/Desktop/即时学习/
 ├── <audio-slug>/               # 一音频一文件夹
 │   ├── transcript.md            #   单 part 音频
-│   ├── part<N>.md              #   多 part 音频 (part1.md / part2.md / ...)
-│   ├── source.m4a              #   原始音频(可选,留作反查)
+│   ├── part<N>.md              #   多 part 音频
+│   ├── source.m4a              #   原始音频(可选)
 │   ├── source_part<N>.m4a      #   多 part 原始音频
-│   └── merged/                 #   all.srt + all.txt(cleanup.sh 留,chunks 删)
+│   └── merged/                 #   all.srt + all.txt (Stepfun backend)
 ├── archive/                    # 旧流程产物 + test scripts
-└── <topic-folder>/             # 手动策展(Behave共读/视频学习/LOGS/播客/)
+└── <topic-folder>/             # 手动策展
 ```
 
 **`<audio-slug>` 命名**:
-- **有主题**: 用主题或人名 (e.g., `Avery胡_优绩主义男孩的死亡`、`从失败到领悟_OPC复利循环`)
-- **临时未取名**: 源文件名去扩展名,或 `<YYYYMMDD_HHMMSS>_<topic>` (e.g., `20260609_012544_4人对谈`)
-- **避免**: `【转录】` 前缀(已废弃)、日期单层 folder(同日多音频会撞)
-
-**为什么不用日期 folder**:
-- 同日多音频不再挤一个目录
-- Topic 浏览友好(按 slug 字母/拼音就分得开)
-- `rm -rf <slug>/` 一键归档整段音频(含 source + merged)
+- 有主题: 用主题或人名 (e.g., `Avery胡_优绩主义男孩的死亡`)
+- 临时未取名: 源文件名去扩展名
+- 避免: `【转录】` 前缀(已废弃)、日期单层 folder(同日多音频会撞)
 
 完整约定 + 反例见 `~/Desktop/即时学习/README.md`。
 
 ## Cleanup Intermediate Files
 
-**问题**：ASR pipeline 会产生 ~100-200MB 中间产物（chunks/*.wav 占大头，每 10min chunk 18MB），不清理会堆积。
-
-**脚本**：`scripts/cleanup.sh`（独立可执行）
+**脚本**: `scripts/cleanup.sh`（独立可执行）
 
 **默认行为**（最终 `.md` 写完后跑）：
-- 删 `transcript_run_*/chunks/` 和 `transcript_<backend>_part<N>/chunks/`（.wav 大文件）
-- 保留 `merged/all.txt` + `merged/all.srt`（小，每 part ~85KB，反查 / 重 cleanup 用）
+- Nano backend: 删 `transcript_run_*/chunks/`（无 chunks，但保险起见也跑）
+- Stepfun backend: 删 `transcript_run_*/chunks/*.wav`，保留 `merged/all.txt` + `merged/all.srt`
 
-**触发时机**：
-- **推荐**：LLM cleanup pass 写完 `.md` 后**立即**跑
-- **兜底**：7 天前的中间产物手动 `rm -rf`
-
-**参数**：
-- `--purge`：连 `merged/` 一起删（彻底）
-- `--keep-wav`：保留 chunks/（覆盖默认）
-- `--dry-run`：只打印不删
-
-**示例**：
 ```bash
-# 在音频所在目录跑
-cd ~/Desktop/即时学习/2026-06-09
-bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh
-
 # 看看会删什么
-bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh --dry-run
+bash scripts/cleanup.sh --dry-run
 
-# 彻底删（包括 merged/）
-bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh --purge
+# 彻底删
+bash scripts/cleanup.sh --purge
 ```
-
-## Backends
-
-`pipeline.sh` 和 sub-agent 脚本**根据环境变量自动选 backend**：
-
-| Backend | 触发条件 | 何时用 |
-|---|---|---|
-| **Fun-ASR-Nano GGUF**（local） | `STEP_API_KEY` 未设 | 默认路径，0 成本，本地推理，零 Python 依赖 |
-| **Stepfun cloud** | `STEP_API_KEY` 已设 | 不方便本地装模型 / 想省时间 / 有 Step Plan 套餐时 |
-
-```bash
-# 默认：GGUF local
-bash scripts/pipeline.sh input.mp3
-
-# 切到 Stepfun cloud
-export STEP_API_KEY=sk-...   # 或你的 Step Plan key
-bash scripts/pipeline.sh input.mp3
-```
-
-**Stepfun 后端** (`transcribe_stepfun.py`) 用 SSE 流式 endpoint（`/v1/audio/asr/sse`），单 chunk 1-2 分钟音频实测 3-4 秒返回。价格 `stepaudio-2.5-asr` **0.15 元/小时**（5h 周配额），无 setup 成本。**只缺说话人分离**——如果需要 diarization，目前本地 GGUF 也不直接支持（Fun-ASR-Nano 没有 cam++），需要额外处理。
-
-**Webhook-like 注意事项**：Stepfun 不支持自定义说话人识别，TXT 里会写 `Speaker 0`（merge.py 兼容格式），下游 LLM cleanup 看到单一 speaker 自然合并。
 
 ## Setup (One-time)
 
-```bash
-bash scripts/setup.sh   # 下载 GGUF 模型 + llama-funasr-nano 二进制（~1.2 GB，无需 Python venv）
-```
+不需要 setup。`~/Downloads/项目与数据/agent_audio_funasr/` 已经在 2026-06-22 装好。如果二进制或 GGUF 文件丢失：
 
-Setup 完成后直接跑，不需要激活任何环境。二进制自带 Metal 加速（Apple Silicon GPU）。
+```bash
+cd ~/Downloads/项目与数据/agent_audio_funasr/
+# 重新拉 GGUF（1.2G）
+bash download-funasr-model.sh nano
+```
 
 ## Common Mistakes
 
 | 错误 | 修复 |
 |------|------|
-| 还在用 v3 的 `.venv-funasr` 路径 | v4 不需要 venv——删除旧的 `.venv-funasr/` 节省 ~1GB 磁盘 |
-| 手动逐个 chunk 转写不并行 | >10min 必并行，否则 1hr 要 1hr 跑完 |
-| 跳过 LLM cleanup pass 直接用 GGUF 原始输出 | ITN 已经做了基础规范化，但专有名词/口语化错误还要 LLM 修 |
-| LLM 过度"补完整" | 硬规则：转录稿不是文章，别 fabricate |
-| 用同一 agent 又是 producer 又是 reviewer | Producer-Verifier 分离原则 |
-| 没跑 verify.sh | 已知坏模式会漏掉（timestamps 残留 / N 準 / 协修） |
-
-## Apple Silicon 性能说明
-
-Fun-ASR-Nano GGUF 原生走 Metal GPU 加速，**不需要 PyTorch 也不需要 MPS 后端**。实测数据：
-
-| 硬件 | 10s 音频耗时 | 备注 |
-|------|-------------|------|
-| Apple M2 (Metal) | ~2.3s | 实测（含 VAD 分段） |
-| Apple M2 + MPS (v3 FP16) | ~1.3s | 不含说话人分离 |
-| 8 核 CPU 服务器 | ~17s | 文章数字 |
-
-**注意**：Fun-ASR-Nano 是 LLM 解码器（Qwen3-0.6B），比 SenseVoice-Small 的纯 NAR 编码器慢。1 小时音频实测 ~8 分钟完成（含 VAD 分段），比 v3 FP16 慢约 1.5x，但准确率更高（大写、词边界、专有名词更准）。
-
-社区目前**没有**更轻量的 Fun-ASR-Nano 量化版本（如 Q4_K_M 的 LLM 可用，精度损失 <0.1% CER）。SenseVoice-Small GGUF 仍然是**最快**的本地选项（254MB，5s/MB），适合对速度有极致要求的场景。
+| 用 `STEP_API_KEY` 切 Stepfun | 不要 — 用 `STEP_ASR_BACKEND=stepfun` 显式 opt-in |
+| 期望 Nano SRT 有真时间戳 | 不会 — Nano stdout 只有合并文本，SRT 是按字符数等分估算 |
+| 跑 skill 自带的 setup.sh | 不要 — 真实环境在 `~/Downloads/项目与数据/agent_audio_funasr/`,不是 skill 内的 venv |
+| 让 Nano 区分说话人 | 它不会 — cleanup pass 时 LLM 自己分 Speaker N |
+| 把多个 chunk 串行过 Nano | 没必要 — Nano 内置 VAD 一把梭哈,不用切分 |
 
 ## Real-World Impact
 
-### Test case 1: 1m13s 小红书短视频 (2026-06-11)
-- 文件：`(一个小号)邪修开发agent智能体...mp3`
-- ASR：Fun-ASR-Nano GGUF Q8 via llama-funasr-cli
-- 转写耗时：~18s（含 Metal 初始化 + VAD 分段）
-- 模型大小：~1.2 GB（encoder 470MB + LLM 767MB + VAD 1.6MB）
-- LLM cleanup：~30s
-- 输出：`~/Desktop/即时学习/邪修开发Agent智能体/transcript.md`
-- 质量对比 SenseVoice-Small：大写/词边界更准（`Openai` → `OpenAI`，`codeex` → `Codex`，`eng` → `engine`）
+### Test case: 5m40s 单人播客 Fishcookies (2026-06-24)
 
-### Test case 2: BV1AiEF6WEFJ 3h11m 课程 (v1 旧 workflow)
-- 10 段
-- 6 sub-agents（3 producer + 3 reviewer）
-- 18 上下文确认 + 6 批改
-- 1736 段，最终 grep 残留 = 0
-- 这是 rigorous 模式的典型用例
+- Backend: **Fun-ASR-Nano GGUF** (default)
+- 启动: 1s (vs PyTorch SenseVoiceSmall 70s)
+- 推理: 42.2s (RTF 8-9x) — 包含 VAD + 切句 + 写文件
+- 输出: 106 段 (按 。！？切), 9.9KB SRT (伪时间戳, 总长 340.85s 对齐)
+- 质量: vs SenseVoice-Small — 0 数字残留 (vs 10), 1 专名错 (vs 4), 0 韩文乱码 (vs 1 段)
+- Cleanup pass: 1 LLM call, ~2-3 min
+- **总耗时: ~5 min** (vs 旧 PyTorch 路径 ~54 min)
 
-### Test case 3: Stepfun cloud backend (2026-06-12)
-- 文件：`(杨阿怡)烂梗分享` 1.4MB / 1m29s
-- Backend：`stepaudio-2.5-asr`（Step Plan 订阅）
-- 切分：1 chunk（<10min 不切）
-- 转写耗时：3.7s（含 SSE 整流）
-- 输出 28 段 SRT，ITN 正常，标点干净
-- `merge.py` 兼容性 OK（输出一致）
-- **对比 Fun-ASR-Nano GGUF**：精度肉眼相当，速度快 4-5x（无模型加载），价格 ~0.005 元
+### Test case: 1m13s 小红书短视频 (2026-06-11, 旧 v3)
+- Backend: PyTorch FunASR SenseVoiceSmall (v3 旧路径, 已弃)
+- 启动: 70s + 推理 10.7s
+- 已被 v4 GGUF 路径超越
+
+## Migration from v3
+
+如果你之前用 v3 skill (PyTorch FunASR + SenseVoiceSmall):
+
+| 改动 | 做什么 |
+|------|--------|
+| ~~`.venv-funasr` 在 skill 内~~ | 已删 — 真实环境在 `~/Downloads/项目与数据/agent_audio_funasr/` |
+| ~~`transcribe_chunk.py` (PyTorch)~~ | 已删 — 改用 `transcribe_funasr.py` (GGUF wrapper) |
+| ~~`transcribe_large.py` (PyTorch Large)~~ | 不存在, 跳过 |
+| ~~`STEP_API_KEY` 自动切 Stepfun~~ | 改 `STEP_ASR_BACKEND=stepfun` 显式 |
+| ~~setup.sh 装 venv~~ | 跳过 — 真实环境已装好 |
+| ffmpeg 切 10min chunks | 不需要 — GGUF 内置 VAD |
+
+## Scripts
+
+| 脚本 | 用途 | 何时跑 |
+|------|------|--------|
+| `scripts/pipeline.sh` | 一键跑完 Nano (或 Stepfun) 转写 | 主线程, 转写前 |
+| `scripts/transcribe_stepfun.py` | Stepfun cloud per-chunk | `STEP_ASR_BACKEND=stepfun` 时 sub-agent 跑 |
+| `scripts/split.sh` | ffmpeg 切 3min chunks (Stepfun only) | Stepfun backend 内部用 |
+| `scripts/merge.py` | 合并 SRT + TXT (按时间戳) | Stepfun backend 内部用 |
+| `scripts/verify.sh` | grep 已知坏模式 + 时间戳残留 | Main: cleanup pass 之后 |
+| `scripts/cleanup.sh` | 删 ASR 中间产物 | 最终 `.md` 写完后 |
