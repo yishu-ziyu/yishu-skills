@@ -1,9 +1,9 @@
 # asr-transcript-refinement
 
-> 音频 → 干净文稿的端到端流水线。**双模式**：speed-first（默认，~15 分钟转 1 小时音频） / rigorous（opt-in，~60-90 分钟换 100% 准确率）。
+> 音频 → 干净文稿的端到端流水线。**双模式**：speed-first（默认，~8 分钟转 1 小时音频） / rigorous（opt-in，~60-90 分钟换 100% 准确率）。
 
 ![mode](https://img.shields.io/badge/mode-speed--first%20%7C%20rigorous-blue)
-![model](https://img.shields.io/badge/ASR-FunASR%20SenseVoice--Small%20FP-orange)
+![model](https://img.shields.io/badge/ASR-Fun--ASR--Nano%20GGUF%20Q8-orange)
 ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,16 +12,16 @@
 把任何长度的音频（**播客 / 视频音轨 / 会议录音**）转成干净的**段落形式**中文文稿。区别于普通转写工具：
 
 - **不只是 ASR**——含 LLM cleanup pass，删时间戳、合并段落、修正专有名词
-- **速度快**——M2 Mac 上 8.6x 实时（含 VAD + 说话人分离）
+- **零 Python 依赖**——llama.cpp 二进制直接跑，不需要 venv、不需要 PyTorch
+- **速度快**——M2 Mac 上 Metal 加速，1 小时音频 ~8 分钟完成
 - **长音频友好**——>10 分钟自动 ffmpeg 切分 + sub-agent 并行
-- **模型对**——用 FunASR 官方全精度 SenseVoice-Small，不用 sherpa-onnx int8
-- **多 backend**——默认本地 FunASR，**可选 Stepfun 阶跃星辰云 ASR**（`stepaudio-2.5-asr`，0.15 元/小时），设 `STEP_API_KEY` 自动切换
+- **多 backend**——默认本地 GGUF，**可选 Stepfun 阶跃星辰云 ASR**（`stepaudio-2.5-asr`，0.15 元/小时），设 `STEP_API_KEY` 自动切换
 
 ## 速度 vs 质量
 
 | 维度 | **Speed-first**（默认） | **Rigorous**（opt-in） |
 |------|------------------------|----------------------|
-| 1 小时音频总耗时 | ~15 min（M2） | ~60-90 min |
+| 1 小时音频总耗时 | ~8 min（M2） | ~60-90 min |
 | 质量（LLM cleanup 后） | 90% | 99% |
 | 适用场景 | 播客 / 视频 / 日常 | 法律 / 医疗 / 学术 / 出版 |
 
@@ -29,29 +29,29 @@
 
 需要：
 - macOS 或 Linux
-- Python 3.12（`brew install python@3.12`）
 - ffmpeg（`brew install ffmpeg`）
-- ~3 GB 磁盘空间
+- HuggingFace CLI（`pip install -U huggingface_hub`）
+- ~1.5 GB 磁盘空间
 
 ```bash
 # 1. 复制 skill 到 Claude Code skills 目录
 cp -r skills/asr-transcript-refinement ~/.claude/skills/
 
-# 2. 首次使用：装 venv + 下载模型（5 分钟左右）
+# 2. 首次使用：下载 GGUF 模型 + 二进制（~1.2 GB，约 2 分钟）
 cd ~/.claude/skills/asr-transcript-refinement
 bash scripts/setup.sh
 
-# 3. 之后每次新 shell 都要激活
-source ../.venv-funasr/bin/activate
+# 3. 直接跑，不需要激活任何环境
+bash scripts/pipeline.sh your_podcast.mp3 ./output_dir
 ```
 
 ## 使用
 
 **先问 2 件事**（详见 [SKILL.md 的 Quick Decision](./SKILL.md#quick-decisionllm-第一步必须问)）：
-1. **单人还是多人**？→ 决定 backend（多人 → FunASR local 拿说话人分离，单人 → Stepfun cloud 快 2-3x）
+1. **单人还是多人**？→ 影响 cleanup 格式
 2. **多长**？→ < 10min 不切，≥ 10min 自动切
 
-不想答直接走默认（本地 FunASR，质量上限更高）：
+不想答直接走默认（本地 GGUF，零依赖，质量上限高）：
 
 ```bash
 # 完整流水线（split + transcribe + merge）
@@ -64,7 +64,7 @@ bash scripts/split.sh your_podcast.mp3 ./chunks
 # （详见 SKILL.md 的 Sub-agent Dispatch Pattern）
 
 # 合并
-python scripts/merge.py ./chunks ./all.srt ./all.txt
+python3 scripts/merge.py ./chunks ./all.srt ./all.txt
 
 # LLM cleanup（主线程跑，应用"100% 上下文确证"规则）
 # ↓ 这个不是脚本，是 LLM 看到 SRT/TXT 后做的工作

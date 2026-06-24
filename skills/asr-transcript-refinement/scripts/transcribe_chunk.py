@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""transcribe_chunk.py — FunASR per-chunk transcription for sub-agent dispatch.
-Usage: python transcribe_chunk.py <input.wav> <output_prefix>
-Outputs: <output_prefix>.srt and <output_prefix>.txt with speaker + timestamps.
-Requires: .venv-funasr activated (or funasr importable).
+"""transcribe_chunk.py — GGUF binary per-chunk transcription for sub-agent dispatch.
+
+Uses llama-funasr-cli (Fun-ASR-Nano GGUF) as subprocess — no Python venv, no PyTorch.
+Outputs: <output_prefix>.srt and <output_prefix>.txt (same interface as before).
 """
-import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 
-# Sanity check: funasr must be importable
-try:
-    from funasr import AutoModel
-except ImportError:
-    print("❌ funasr not installed. Run: bash setup.sh", file=sys.stderr)
-    sys.exit(1)
+SCRIPT_DIR = Path(__file__).resolve().parent
+SKILL_DIR = SCRIPT_DIR.parent
+NANO_BIN = SKILL_DIR / ".bin/llama-funasr-nano"
+NANO_ENC = SKILL_DIR / "gguf/funasr-encoder-f16.gguf"
+NANO_LLM = SKILL_DIR / "gguf/qwen3-0.6b-q8_0.gguf"
+NANO_VAD = SKILL_DIR / "gguf/fsmn-vad.gguf"
+
+TAG_RE = re.compile(r"<\|[^|]+\|>")
+
+
+def strip_tags(text: str) -> str:
+    return TAG_RE.sub("", text).strip()
 
 
 def fmt_ts(sec: float) -> str:
@@ -23,14 +29,7 @@ def fmt_ts(sec: float) -> str:
     m = int((sec % 3600) // 60)
     s = int(sec % 60)
     ms = int((sec - int(sec)) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"  # SRT format uses comma
-
-
-TAG_RE = re.compile(r"<\|[^|]+\|>")
-
-
-def strip_tags(text: str) -> str:
-    return TAG_RE.sub("", text).strip()
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def main():
@@ -44,68 +43,46 @@ def main():
     txt_path = prefix.with_suffix(".txt")
 
     if not wav_path.exists():
-        print(f"❌ Input not found: {wav_path}", file=sys.stderr)
+        print(f"Input not found: {wav_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Pick device: MPS for Apple Silicon, CUDA for NVIDIA, else CPU
-    import torch
-    if torch.backends.mps.is_available():
-        device = "mps"
-    elif torch.cuda.is_available():
-        device = "cuda:0"
-    else:
-        device = "cpu"
+    for p, name in [(NANO_BIN, "llama-funasr-nano binary"), (NANO_ENC, "Nano encoder"),
+                    (NANO_LLM, "Nano LLM"), (NANO_VAD, "VAD")]:
+        if not p.exists():
+            print(f"{name} not found: {p}", file=sys.stderr)
+            print("Run: bash setup.sh", file=sys.stderr)
+            sys.exit(1)
 
-    print(f"[transcribe_chunk] Loading FunASR (device={device})...", file=sys.stderr)
+    print(f"[transcribe_chunk] Transcribing {wav_path.name} ({wav_path.stat().st_size / 1024 / 1024:.1f} MB)...", file=sys.stderr)
     t0 = time.time()
-    model = AutoModel(
-        model="iic/SenseVoiceSmall",
-        vad_model="fsmn-vad",
-        spk_model="cam++",
-        device=device,
+    result = subprocess.run(
+        [str(NANO_BIN), "--enc", str(NANO_ENC), "-m", str(NANO_LLM),
+         "--vad", str(NANO_VAD), "-a", str(wav_path)],
+        capture_output=True, text=True, timeout=600,
     )
-    print(f"[transcribe_chunk] Model loaded in {time.time()-t0:.1f}s", file=sys.stderr)
+    elapsed = time.time() - t0
 
-    print(f"[transcribe_chunk] Transcribing {wav_path}...", file=sys.stderr)
-    t0 = time.time()
-    result = model.generate(
-        input=str(wav_path),
-        language="auto",  # zh / en / ja / ko / yue / auto
-        use_itn=True,
-        batch_size_s=60,
-    )
-    audio_dur = time.time() - t0
-    print(f"[transcribe_chunk] Inference done in {audio_dur:.1f}s", file=sys.stderr)
+    if result.returncode != 0:
+        print(f"Binary failed (exit {result.returncode}): {result.stderr[:200]}", file=sys.stderr)
+        sys.exit(1)
 
-    # Extract sentence_info (FunASR returns list with one item containing sentence_info)
-    srt_lines = []
-    txt_lines = []
-    if not result:
-        print("⚠️ Empty result from FunASR", file=sys.stderr)
-        srt_path.write_text("")
-        txt_path.write_text("")
-        return
+    raw = result.stdout.strip()
+    lines = [l for l in raw.split("\n")
+             if l and not any(l.startswith(p) for p in ("[", "ggml", "llama", "sched", "graph", "~", "ggml_metal"))]
+    text = lines[-1] if lines else ""
 
-    item = result[0] if isinstance(result, list) else result
-    sentences = item.get("sentence_info", []) if isinstance(item, dict) else []
-    idx = 0
-    for sent in sentences:
-        start_ms = sent.get("start", 0)
-        end_ms = sent.get("end", 0)
-        # FunASR's per-sentence key is "sentence" (not "text")
-        text = strip_tags(sent.get("sentence", "") or sent.get("text", ""))
-        spk = sent.get("spk", 0)
-        if not text:
-            continue
-        idx += 1
-        srt_lines.append(f"{idx}\n{fmt_ts(start_ms/1000.0)} --> {fmt_ts(end_ms/1000.0)}\n{text}\n")
-        txt_lines.append(f"[{fmt_ts(start_ms/1000.0)}] Speaker {spk}: {text}")
+    if not text:
+        print("Empty output from binary", file=sys.stderr)
+        sys.exit(1)
 
-    srt_path.write_text("\n".join(srt_lines))
-    txt_path.write_text("\n".join(txt_lines) + "\n")
-    print(f"[transcribe_chunk] Wrote {srt_path} ({srt_path.stat().st_size} bytes, {idx} segments)", file=sys.stderr)
-    print(f"[transcribe_chunk] Wrote {txt_path} ({txt_path.stat().st_size} bytes)", file=sys.stderr)
-    print(f"[transcribe_chunk] DONE: {idx} segments in {audio_dur:.1f}s inference time")
+    text = strip_tags(text)
+
+    # Output: SRT + TXT (same format as FunASR backend for merge.py compat)
+    srt_path.write_text(f"1\n00:00:00,000 --> 99:99:99,999\n{text}\n")
+    txt_path.write_text(f"[00:00:00.000] Speaker 0: {text}\n")
+
+    print(f"[transcribe_chunk] Wrote {srt_path.name} ({srt_path.stat().st_size} bytes) in {elapsed:.1f}s", file=sys.stderr)
+    print(f"[transcribe_chunk] DONE: {elapsed:.1f}s")
 
 
 if __name__ == "__main__":

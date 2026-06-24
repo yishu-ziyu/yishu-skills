@@ -6,7 +6,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${SCRIPT_DIR}/../.venv-funasr"
+SKILL_DIR="${SCRIPT_DIR}/.."
+NANO_BIN="${SKILL_DIR}/.bin/llama-funasr-nano"
 
 INPUT="${1:?Usage: $0 <input_audio> [output_dir]}"
 OUT_DIR="${2:-$(dirname "$INPUT")/transcript_run_$(date +%Y%m%d_%H%M%S)}"
@@ -16,13 +17,13 @@ if [ ! -f "$INPUT" ]; then
   exit 1
 fi
 
-# Backend selection: Stepfun cloud (fast, cheap) if STEP_API_KEY is set, else FunASR local
+# Backend selection: Stepfun cloud (fast, cheap) if STEP_API_KEY is set, else GGUF local
 if [ -n "$STEP_API_KEY" ]; then
   BACKEND="stepfun"
 else
-  BACKEND="funasr"
-  if [ ! -d "$VENV_DIR" ]; then
-    echo "❌ FunASR venv not found at $VENV_DIR. Run: bash setup.sh"
+  BACKEND="gguf"
+  if [ ! -x "$NANO_BIN" ]; then
+    echo "❌ llama-funasr-nano binary not found at $NANO_BIN. Run: bash setup.sh"
     echo "   (or set STEP_API_KEY to use the Stepfun cloud backend instead)"
     exit 1
   fi
@@ -32,15 +33,15 @@ mkdir -p "$OUT_DIR"
 CHUNKS_DIR="$OUT_DIR/chunks"
 MERGED_DIR="$OUT_DIR/merged"
 
-echo "=== ASR Transcript Pipeline (speed-first, sequential, backend=$BACKEND) ==="
+echo "=== ASR Transcript Pipeline (speed-first, backend=$BACKEND) ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUT_DIR"
-[ "$BACKEND" = "funasr" ] && echo "Venv:     $VENV_DIR"
+[ "$BACKEND" = "gguf" ] && echo "Binary:   $NANO_BIN"
 echo ""
 
 # Step 1: split
-# Chunk size depends on backend: Stepfun SSE limits base64 to 10MB
-# (3min 16kHz mono WAV = 7.5MB base64, safe). FunASR local has no such limit.
+# GGUF local: 10min chunks (no size limit like cloud base64)
+# Stepfun cloud: 3min chunks (SSE base64 limit ~10MB)
 if [ "$BACKEND" = "stepfun" ]; then
   CHUNK_SEC=180
 else
@@ -60,12 +61,11 @@ if [ "$BACKEND" = "stepfun" ]; then
     python3 "$SCRIPT_DIR/transcribe_stepfun.py" "$chunk_wav" "$chunk_prefix"
   done
 else
-  echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=funasr] ---"
-  source "$VENV_DIR/bin/activate"
+  echo "--- Step 2/4: transcribe ($N_CHUNKS chunks, sequential) [backend=gguf] ---"
   for chunk_wav in "$CHUNKS_DIR"/chunk_*.wav; do
     chunk_prefix="${chunk_wav%.wav}"
     echo "[chunk] $(basename "$chunk_wav")"
-    python "$SCRIPT_DIR/transcribe_chunk.py" "$chunk_wav" "$chunk_prefix"
+    python3 "$SCRIPT_DIR/transcribe_chunk.py" "$chunk_wav" "$chunk_prefix"
   done
 fi
 
@@ -73,9 +73,9 @@ fi
 echo ""
 echo "--- Step 3/4: merge ---"
 mkdir -p "$MERGED_DIR"
-python "$SCRIPT_DIR/merge.py" "$CHUNKS_DIR" "$MERGED_DIR/all.srt" "$MERGED_DIR/all.txt"
+python3 "$SCRIPT_DIR/merge.py" "$CHUNKS_DIR" "$MERGED_DIR/all.srt" "$MERGED_DIR/all.txt"
 
-# Step 4: verify (raw FunASR output will have many hits — that's expected before LLM cleanup)
+# Step 4: verify (raw output will have hits — that's expected before LLM cleanup)
 echo ""
 echo "--- Step 4/4: verify (raw — expect hits) ---"
 echo "(verify.sh is meant for post-LLM-cleanup transcripts. Raw ASR output will trigger patterns.)"

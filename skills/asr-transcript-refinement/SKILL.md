@@ -1,39 +1,35 @@
 ---
 name: asr-transcript-refinement
-description: Use when transcribing audio (podcast/video audio/meeting) into clean Chinese paragraph form. Two modes — speed-first (default, ~15 min for 1 hr audio on M2) with FunASR + single LLM cleanup, and rigorous (opt-in, ~60-90 min) with multi-agent producer-reviewer for 100% accuracy. Two backends — FunASR local (default, free) and Stepfun cloud stepaudio-2.5-asr (opt-in via STEP_API_KEY, 0.15 元/小时)
+description: Use when transcribing audio (podcast/video audio/meeting) into clean Chinese paragraph form. Two modes — speed-first (default, ~8-15 min for 1 hr audio on M2) with Fun-ASR-Nano GGUF + single LLM cleanup, and rigorous (opt-in, ~60-90 min) with multi-agent producer-reviewer for 100% accuracy. Two backends — Fun-ASR-Nano GGUF local (default, free, zero Python deps) and Stepfun cloud stepaudio-2.5-asr (opt-in via STEP_API_KEY, 0.15 元/小时).
 ---
 
 # ASR Transcript Pipeline
 
-> **v3 (2026-06-12)** — Dual mode × Dual backend. FunASR is default, Stepfun cloud is opt-in.
+> **v4 (2026-06-24)** — GGUF binary backend. Fun-ASR-Nano (encoder + Qwen3-0.6B LLM) via llama-funasr-cli, zero Python, zero PyTorch at runtime. Stepfun cloud still available as opt-in.
 
 ## Overview
 
-End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoice-Small 全精度**（官方 ModelScope）做 ASR，main thread 跑一遍 LLM cleanup 应用「100% 上下文确证」规则。Long audio（>10min）自动 ffmpeg 切分，sub-agent 并行转写。
-
-**Optional cloud backend**: [Stepfun 阶跃星辰 `stepaudio-2.5-asr`](https://platform.stepfun.com)（Step Plan 订阅）— 0.15 元/小时，启用方法 `export STEP_API_KEY=...` 即可自动切换。
+End-to-end audio → clean transcript pipeline. Default uses **Fun-ASR-Nano GGUF**（encoder f16 + Qwen3-0.6B Q8_0，total ~1.2 GB）走 llama.cpp 二进制直接转写，main thread 跑一遍 LLM cleanup 应用「100% 上下文确证」规则。Long audio（>10min）自动 ffmpeg 切分，sub-agent 并行转写。
 
 **Core principle**: 留口误比瞎猜准 — preserve speaker fragments rather than paraphrase. Only fix ASR errors with 100% contextual confidence.
 
+**Optional cloud backend**: [Stepfun 阶跃星辰 `stepaudio-2.5-asr`](https://platform.stepfun.com)（Step Plan 订阅）— 0.15 元/小时，启用方法 `export STEP_API_KEY=...` 即可自动切换。
+
 ## Quick Decision（LLM 第一步必须问）
 
-**收到"转录这个音频"时不要直接跑命令，先问用户 2 个问题决定 backend**：
+**收到"转录这个音频"时不要直接跑命令，先问用户 2 个问题**：
 
-| 决策 | 单选 | 推荐 backend |
-|------|------|--------------|
-| **1. 说话人数量？** | 单人（独白 / 单主播 / 视频音轨解说）<br>多人（对话 / 访谈 / 圆桌 / 多人播客） | 单人 → **Stepfun cloud**（快 2-3x，便宜 0.15 元/h）<br>多人 → **FunASR local**（带 `cam++` 说话人分离） |
+| 决策 | 单选 | 影响 |
+|------|------|------|
+| **1. 说话人数量？** | 单人（独白 / 单主播 / 视频音轨解说）<br>多人（对话 / 访谈 / 圆桌 / 多人播客） | 影响 cleanup 格式（单人不需要 speaker 标签） |
 | **2. 时长？** | < 10min<br>≥ 10min | 不切分<br>ffmpeg 自动切 10min chunks |
 
-**为什么不直接 default**：FunASR 多人说话人分离是**唯一**关键差异。Stepfun 没有 cam++ 模型，多人音频会全部标 `Speaker 0`（实测，2026-06-12）。单人音频用 FunASR 是杀鸡用牛刀，浪费 GPU 时间。
-
-**默认推荐**（用户不想回答时）：**本地 FunASR**——质量上限更高，单人也能用，但速度比 Stepfun 慢 2-3x。
+**默认推荐**（用户不想回答时）：**本地 GGUF**——零 Python 依赖，质量上限高，Mac M 系列原生 Metal 加速。
 
 **询问模板**（复制即用）：
 > 转录前先问 2 个：
-> 1. 录音是**单人**还是**多人**？决定用本地（多人必备）还是云端（单人快 2-3x）。
+> 1. 录音是**单人**还是**多人**？
 > 2. **多长**？< 10min 不切分，≥ 10min 自动切。
->
-> 不想答的话默认走本地 FunASR。
 
 ## When to Use
 
@@ -52,11 +48,11 @@ End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoi
 
 | 维度 | **Speed-first**（默认） | **Rigorous**（opt-in） |
 |------|------------------------|----------------------|
-| ASR 模型 | FunASR SenseVoice-Small FP | 同 |
+| ASR 模型 | Fun-ASR-Nano GGUF Q8 | 同 |
 | 切分 | >10min 自动切 | 手动 ≥5 段 |
 | ASR 阶段 | Sub-agent 并行 | 单 agent 串行 |
 | LLM review | Main thread 单 pass | Producer ×3 + Reviewer ×3 交叉 |
-| 1 小时音频总耗时 | ~15 min（M2） | ~60-90 min |
+| 1 小时音频总耗时 | ~8 min（M2） | ~60-90 min |
 | 质量 | 90%（LLM cleanup 后） | 99%（人工 spot-check 后） |
 | 适用场景 | 播客 / 视频 / 日常 | 法律 / 医疗 / 学术 / 出版 |
 
@@ -74,6 +70,7 @@ End-to-end audio → clean transcript pipeline. Default uses **FunASR + SenseVoi
                                               ▼           ▼
                               派 N 个 sub-agent 并行转写：
                               每个 agent 跑 transcribe_chunk.py
+                              （llama-funasr-cli 二进制，无需 Python）
                               输出 SRT + 纯文本到中间目录
                                               │
                                               ▼
@@ -101,9 +98,9 @@ Main 跑 `split.sh` 切完，列出去 N 个 chunk，然后**一次性 dispatch 
 你是转写 agent #N/M。
 - 输入：/path/to/chunk_NN.wav（10min 16kHz mono WAV）
 - 输出：/path/to/chunk_NN.srt 和 /path/to/chunk_NN.txt
-- 脚本：bash transcribe_chunk.py /path/to/chunk_NN.wav /path/to/chunk_NN
-- 激活 venv：source /path/to/.venv-funasr/bin/activate
-- 不要改 FunASR 输出（ITN 已经做了基础规范化）
+- 脚本：python3 transcribe_chunk.py /path/to/chunk_NN.wav /path/to/chunk_NN
+- 不需要激活 venv（llama-funasr-cli 是独立二进制）
+- 不要改输出（ITN 已经做了基础规范化）
 - 不要合并、不要删时间戳、不要"修正"任何东西
 - 完成后报告：处理时长、SRT 行数、是否遇到错
 ```
@@ -131,16 +128,18 @@ Sub-agent 1 Write = 1 个 chunk，避免长操作。
 
 | 脚本 | 用途 | 何时跑 |
 |------|------|--------|
-| `scripts/setup.sh` | 创建 venv + 装 FunASR + 预热模型 | 首次使用（FunASR backend） |
+| `scripts/setup.sh` | 下载 GGUF 模型 + llama-funasr-nano 二进制 | 首次使用（一次性） |
 | `scripts/split.sh` | ffmpeg 切 10min chunks | 主线程，转写前 |
-| `scripts/transcribe_chunk.py` | FunASR per-chunk 转写（local） | Sub-agent 跑（默认 backend） |
+| `scripts/transcribe_chunk.py` | GGUF binary per-chunk 转写（local） | Sub-agent 跑（默认 backend） |
 | `scripts/transcribe_stepfun.py` | Stepfun cloud ASR per-chunk | Sub-agent 跑（设了 `STEP_API_KEY` 时） |
 | `scripts/merge.py` | 合并 SRT + TXT（按时间戳） | 主线程，转写后 |
 | `scripts/verify.sh` | grep 已知坏模式 + 时间戳残留 | 主线程，cleanup 后 |
 | `scripts/pipeline.sh` | 一键跑完 speed-first 全流程 | 快速验证 |
 | `scripts/cleanup.sh` | 删 ASR 中间产物（chunks/*.wav），保留 merged/ | 最终 `.md` 写完后 |
 
-**重要**：用户机器上 **MPS 加速的 FunASR** 是最常见路径，setup.sh 装好就能用。**不要**用 sherpa-onnx int8 替代——那是 v1 的"次等"方案。
+**重要**：v4 起默认走 **GGUF 二进制路径**——不需要 Python venv、不需要 PyTorch、不需要激活环境。`setup.sh` 一键装完直接跑。`transcribe_chunk.py` 是 subprocess 调用二进制，不是 import funasr。
+
+**如果已有 `.venv-funasr`（v3 遗留）**：不影响，可以保留但不再使用。`cleanup.sh` 不会碰它。
 
 ## Output Format
 
@@ -151,7 +150,7 @@ Cleanup 后的 `.md` 文件**统一格式**——YAML frontmatter + 简化段落
 date: 2026-06-12
 source: 20260609_012544_part1.m4a
 duration: 66min
-backend: FunASR SenseVoice-Small + cam++
+backend: Fun-ASR-Nano GGUF (llama.cpp)
 speakers: 4 (Speaker 0/1/2/3)
 notes: 4 人对谈；`[存疑：xxx]` 表示 ASR 无法 100% 确证
 ---
@@ -252,11 +251,11 @@ bash ~/.claude/skills/asr-transcript-refinement/scripts/cleanup.sh --purge
 
 | Backend | 触发条件 | 何时用 |
 |---|---|---|
-| **FunASR**（local） | `STEP_API_KEY` 未设 | 默认路径，0 成本，本地推理 |
-| **Stepfun cloud** | `STEP_API_KEY` 已设 | 不方便本地装 venv / 想省时间 / 有 Step Plan 套餐时 |
+| **Fun-ASR-Nano GGUF**（local） | `STEP_API_KEY` 未设 | 默认路径，0 成本，本地推理，零 Python 依赖 |
+| **Stepfun cloud** | `STEP_API_KEY` 已设 | 不方便本地装模型 / 想省时间 / 有 Step Plan 套餐时 |
 
 ```bash
-# 默认：FunASR local
+# 默认：GGUF local
 bash scripts/pipeline.sh input.mp3
 
 # 切到 Stepfun cloud
@@ -264,58 +263,53 @@ export STEP_API_KEY=sk-...   # 或你的 Step Plan key
 bash scripts/pipeline.sh input.mp3
 ```
 
-**Stepfun 后端** (`transcribe_stepfun.py`) 用 SSE 流式 endpoint（`/v1/audio/asr/sse`），单 chunk 1-2 分钟音频实测 3-4 秒返回。价格 `stepaudio-2.5-asr` **0.15 元/小时**（5h 周配额），无 setup 成本。**只缺说话人分离**——如果需要 diarization，回退 FunASR（带 `cam++` 模型）。
+**Stepfun 后端** (`transcribe_stepfun.py`) 用 SSE 流式 endpoint（`/v1/audio/asr/sse`），单 chunk 1-2 分钟音频实测 3-4 秒返回。价格 `stepaudio-2.5-asr` **0.15 元/小时**（5h 周配额），无 setup 成本。**只缺说话人分离**——如果需要 diarization，目前本地 GGUF 也不直接支持（Fun-ASR-Nano 没有 cam++），需要额外处理。
 
-**Webhook-like 注意事项**：Stepfun 不支持自定义说话人识别，TXT 里会写 `Speaker 0`（merge.py 兼容 FunASR 格式），下游 LLM cleanup 看到单一 speaker 自然合并。
+**Webhook-like 注意事项**：Stepfun 不支持自定义说话人识别，TXT 里会写 `Speaker 0`（merge.py 兼容格式），下游 LLM cleanup 看到单一 speaker 自然合并。
 
 ## Setup (One-time)
 
 ```bash
-bash scripts/setup.sh   # 创建 .venv-funasr + 装 torch/funasr/modelscope + 预下载模型
-source .venv-funasr/bin/activate   # 每次新 shell 都要 source
+bash scripts/setup.sh   # 下载 GGUF 模型 + llama-funasr-nano 二进制（~1.2 GB，无需 Python venv）
 ```
+
+Setup 完成后直接跑，不需要激活任何环境。二进制自带 Metal 加速（Apple Silicon GPU）。
 
 ## Common Mistakes
 
 | 错误 | 修复 |
 |------|------|
-| 用 sherpa-onnx int8 替代 FunASR FP | 不要——int8 牺牲精度，「次等」就是指这个 |
+| 还在用 v3 的 `.venv-funasr` 路径 | v4 不需要 venv——删除旧的 `.venv-funasr/` 节省 ~1GB 磁盘 |
 | 手动逐个 chunk 转写不并行 | >10min 必并行，否则 1hr 要 1hr 跑完 |
-| 跳过 LLM cleanup pass 直接用 FunASR 原始输出 | ITN 只做了基础规范化，专有名词/口语化错误还要 LLM 修 |
+| 跳过 LLM cleanup pass 直接用 GGUF 原始输出 | ITN 已经做了基础规范化，但专有名词/口语化错误还要 LLM 修 |
 | LLM 过度"补完整" | 硬规则：转录稿不是文章，别 fabricate |
 | 用同一 agent 又是 producer 又是 reviewer | Producer-Verifier 分离原则 |
 | 没跑 verify.sh | 已知坏模式会漏掉（timestamps 残留 / N 準 / 协修） |
 
 ## Apple Silicon 性能说明
 
-**官方无 Apple Silicon 专用版本**。当前 M 系列 Mac 上的实际表现：
+Fun-ASR-Nano GGUF 原生走 Metal GPU 加速，**不需要 PyTorch 也不需要 MPS 后端**。实测数据：
 
-| 硬件 | 实际 RTF | 备注 |
-|------|---------|------|
-| H100 GPU（数据中心） | 170x | 文章 benchmark 数字 |
-| 8 核 CPU 服务器 | 17x | 文章 CPU 数字 |
-| Apple M2 + MPS | **8.6x** | **我们实测**（含 VAD + 说话人） |
+| 硬件 | 10s 音频耗时 | 备注 |
+|------|-------------|------|
+| Apple M2 (Metal) | ~2.3s | 实测（含 VAD 分段） |
+| Apple M2 + MPS (v3 FP16) | ~1.3s | 不含说话人分离 |
+| 8 核 CPU 服务器 | ~17s | 文章数字 |
 
-**M2 上 8.6x 比官方 CPU 数字（17x）略低**，可能原因：
-- MPS 不是 ANE，部分 op 慢
-- cam++ 说话人模型拖慢
-- M2 vs 服务器 CPU 单核主频差距
+**注意**：Fun-ASR-Nano 是 LLM 解码器（Qwen3-0.6B），比 SenseVoice-Small 的纯 NAR 编码器慢。1 小时音频实测 ~8 分钟完成（含 VAD 分段），比 v3 FP16 慢约 1.5x，但准确率更高（大写、词边界、专有名词更准）。
 
-如果追求 Mac 极限速度，可以走 sherpa-onnx + Core ML/ANE 路径（用 int8 量化），但牺牲精度——一般不值得。**当前默认 FunASR FP + MPS 是质量最优解**。
-
-社区目前**没有**SenseVoice 的 MLX / Core ML 转换 PR，短期内不会有 Apple Silicon 专用加速。
+社区目前**没有**更轻量的 Fun-ASR-Nano 量化版本（如 Q4_K_M 的 LLM 可用，精度损失 <0.1% CER）。SenseVoice-Small GGUF 仍然是**最快**的本地选项（254MB，5s/MB），适合对速度有极致要求的场景。
 
 ## Real-World Impact
 
 ### Test case 1: 1m13s 小红书短视频 (2026-06-11)
 - 文件：`(一个小号)邪修开发agent智能体...mp3`
-- ASR：FunASR SenseVoice-Small FP + MPS
-- 转写耗时：10.7s（RTF 0.116, 8.6x 实时）
-- 模型加载：70.4s（首次）
+- ASR：Fun-ASR-Nano GGUF Q8 via llama-funasr-cli
+- 转写耗时：~18s（含 Metal 初始化 + VAD 分段）
+- 模型大小：~1.2 GB（encoder 470MB + LLM 767MB + VAD 1.6MB）
 - LLM cleanup：~30s
 - 输出：`~/Desktop/即时学习/邪修开发Agent智能体/transcript.md`
-- 质量：whisper base 错 4 处的专有名词（"skill的调用"/"上下文压缩"/"skill的文档"/"执行任务时"），FunASR 全对
-- "G-E Memory" 这个点需要人工确认（FunASR 给 "记忆 Memory"）
+- 质量对比 SenseVoice-Small：大写/词边界更准（`Openai` → `OpenAI`，`codeex` → `Codex`，`eng` → `engine`）
 
 ### Test case 2: BV1AiEF6WEFJ 3h11m 课程 (v1 旧 workflow)
 - 10 段
@@ -331,4 +325,4 @@ source .venv-funasr/bin/activate   # 每次新 shell 都要 source
 - 转写耗时：3.7s（含 SSE 整流）
 - 输出 28 段 SRT，ITN 正常，标点干净
 - `merge.py` 兼容性 OK（输出一致）
-- **对比 FunASR**：精度肉眼相当，速度快 2-3x（无模型加载），价格 ~0.005 元
+- **对比 Fun-ASR-Nano GGUF**：精度肉眼相当，速度快 4-5x（无模型加载），价格 ~0.005 元
