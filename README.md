@@ -22,6 +22,7 @@
 |---|---|---|
 | 🎙️ [**asr-transcript-refinement**](#-skills) | 音频 → 干净文稿（双模式 speed-first / rigorous） | [SKILL.md](./skills/asr-transcript-refinement/SKILL.md) · [README](./skills/asr-transcript-refinement/README.md) |
 | 🎙️ [**transcription/eve-transcriber**](#-skills) | Qwen3-ASR 本地语音转文字（历史版） | [SKILL.md](./skills/transcription/eve-transcriber/SKILL.md) |
+| 🎬 [**extract-audio**](./skills/extract-audio) | 从视频提取音频转 MP3（ffmpeg，原 yishuscripts） | [SKILL.md](./skills/extract-audio/SKILL.md) |
 
 
 | 📝 [**academic-peer-review-workflow**](./skills/academic-peer-review-workflow) | 多轮审稿流程管理：从投稿到录用的全流程导航 | [SKILL.md](./skills/academic-peer-review-workflow/SKILL.md) |
@@ -125,6 +126,7 @@ cd ~/.claude/skills/<skill-name> && bash scripts/setup.sh
 
 - [x] **asr-transcript-refinement** — 音频转写精修流水线
 - [x] **eve-transcriber** — Qwen3-ASR 本地转录（历史版）
+- [x] **extract-audio** — 视频提取音频转 MP3（2026-08 自 yishuscripts 合并，后者已删除）
 - [ ] TBD — 等攒到下一个值得公开的 skill 再加
 
 ---
