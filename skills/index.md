@@ -1,4 +1,3 @@
-```markdown
 # 游戏设计艺术技能集
 
 本技能集基于 Jesse Schell 的经典著作《游戏设计艺术（第2版）》开发，旨在为游戏设计师、开发者和创意工作者提供系统化的专业指导。这些技能涵盖了游戏设计的各个维度——从基础概念与理论、机制与系统设计、角色与叙事，到玩家心理学、团队协作、测试方法论，以及商业策略与项目管理。
@@ -85,11 +84,6 @@
 | [crowdfunding-campaign-planning](crowdfunding-campaign-planning/SKILL.md) | 评估和规划游戏项目众筹活动 | 独立开发者评估是否众筹、运营Kickstarter |
 | [transmedia-world-design](transmedia-world-design/SKILL.md) | 开发跨多个媒体平台的IP特许经营权 | 跨媒体IP开发、虚构宇宙构建、品牌策略 |
 
-## 快速导航
+## 叙事游戏速查
 
-### 游戏设计基础与理论
-- **[game-design-structure-lenses](game-design-structure-lenses/SKILL.md)**: 分析游戏整体结构的结构化透镜工具
-- **[game-problem-solving-analysis](game-problem-solving-analysis/SKILL.md)**: 分析游戏本质和验证活动是否为游戏
-- **[mental-modeling-design](mental-modeling-design/SKILL.md)**: 应用大脑简化模型原则优化设计
-- **[game-design-terminology-standards](game-design-terminology-standards/SKILL.md)**: 游戏设计术语标准和翻译规范
-- **[game-design-lenses](game-design-lenses/SK
+[按类别查看技能速查表](QUICKREF.md)
