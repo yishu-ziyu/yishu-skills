@@ -5,7 +5,7 @@
 #### 奕枢的公开 Claude Code skills 库
 
 [![License](https://img.shields.io/badge/License-MIT-3B82F6?style=for-the-badge)](./LICENSE)
-[![Skills](https://img.shields.io/badge/Skills-2-10B981?style=for-the-badge)](#-skills)
+[![Skills](https://img.shields.io/badge/Skills-79-10B981?style=for-the-badge)](#-skills)
 [![Platform](https://img.shields.io/badge/Claude_Code-Skill-8B5CF6?style=for-the-badge)](#-关于)
 
 </div>
@@ -23,6 +23,7 @@
 | 🎙️ [**asr-transcript-refinement**](#-skills) | 音频 → 干净文稿（双模式 speed-first / rigorous） | [SKILL.md](./skills/asr-transcript-refinement/SKILL.md) · [README](./skills/asr-transcript-refinement/README.md) |
 | 🎙️ [**transcription/eve-transcriber**](#-skills) | Qwen3-ASR 本地语音转文字（历史版） | [SKILL.md](./skills/transcription/eve-transcriber/SKILL.md) |
 | 🎬 [**extract-audio**](./skills/extract-audio) | 从视频提取音频转 MP3（ffmpeg，原 yishuscripts） | [SKILL.md](./skills/extract-audio/SKILL.md) |
+| 🎮 [**游戏设计 Skill 集**](./skills/index.md) | 70 个游戏设计、叙事、测试与项目管理 Skill | [完整索引](./skills/index.md) · [叙事游戏速查](./skills/QUICKREF.md) |
 
 
 | 📝 [**academic-peer-review-workflow**](./skills/academic-peer-review-workflow) | 多轮审稿流程管理：从投稿到录用的全流程导航 | [SKILL.md](./skills/academic-peer-review-workflow/SKILL.md) |
